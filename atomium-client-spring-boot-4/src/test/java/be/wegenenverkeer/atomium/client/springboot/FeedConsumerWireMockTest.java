@@ -1,7 +1,5 @@
 package be.wegenenverkeer.atomium.client.springboot;
 
-import be.wegenenverkeer.atomium.client.handler.BatchedFeedHandler;
-import be.wegenenverkeer.atomium.client.handler.EntryFeedHandler;
 import be.wegenenverkeer.atomium.client.handler.FeedEventListener;
 import be.wegenenverkeer.atomium.client.handler.FeedHandler;
 import be.wegenenverkeer.atomium.client.handler.FeedHandlerBatch;
@@ -10,6 +8,7 @@ import be.wegenenverkeer.atomium.client.handler.InterruptingFeedEventListener;
 import be.wegenenverkeer.atomium.client.handler.RecordingFeedEventListener;
 import be.wegenenverkeer.atomium.client.handler.Feeds;
 
+import com.github.tomakehurst.wiremock.stubbing.Scenario;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -17,12 +16,15 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
+import org.springframework.http.HttpHeaders;
 import org.springframework.jdbc.core.simple.JdbcClient;
 
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static com.github.tomakehurst.wiremock.client.WireMock.aResponse;
+import static com.github.tomakehurst.wiremock.client.WireMock.equalTo;
 import static com.github.tomakehurst.wiremock.client.WireMock.get;
+import static com.github.tomakehurst.wiremock.client.WireMock.getRequestedFor;
 import static com.github.tomakehurst.wiremock.client.WireMock.matching;
 import static com.github.tomakehurst.wiremock.client.WireMock.okJson;
 import static com.github.tomakehurst.wiremock.client.WireMock.urlPathEqualTo;
@@ -44,14 +46,17 @@ class FeedConsumerWireMockTest extends AbstractAtomiumFeedIT {
 
     /**
      * Test customizers: an <em>inline</em> executor ({@code Runnable::run}) so {@link FeedRunner#tryToStart()}
-     * executes the run synchronously on the calling thread (deterministic asserts, no feed thread to wait for), plus a
-     * counting interceptor on the HTTP client of {@code foo-app} — the end-to-end proof that a customizer reaches the
-     * actually used client. Together they show that both executor and client builder are configurable via {@link FeedCustomizer}.
+     * executes the run synchronously on the calling thread (deterministic asserts, no feed thread to wait for), plus
+     * two interceptors on the HTTP client of {@code foo-app} — one counting (the end-to-end proof that a customizer
+     * reaches the actually used client), one minting a fresh {@code Authorization} value per request (the proof that
+     * auth is applied per request, see {@link #theRetryAfterAFailedRunCarriesAFreshlyMintedAuthorizationHeader()}).
+     * Together they show that both executor and client builder are configurable via {@link FeedCustomizer}.
      */
     @TestConfiguration
     static class InlineExecutorConfig {
 
         static final AtomicInteger INTERCEPTOR_CALLS = new AtomicInteger();
+        static final AtomicInteger TOKEN_MINTS = new AtomicInteger();
 
         @Bean
         FeedCustomizer inlineExecutorCustomizer() {
@@ -63,6 +68,15 @@ class FeedConsumerWireMockTest extends AbstractAtomiumFeedIT {
             return FeedCustomizer.forFeed("foo-app", feed ->
                     feed.restClientBuilder().requestInterceptor((request, body, execution) -> {
                         INTERCEPTOR_CALLS.incrementAndGet();
+                        return execution.execute(request, body);
+                    }));
+        }
+
+        @Bean
+        FeedCustomizer authMintingInterceptorCustomizer() {
+            return FeedCustomizer.forFeed("foo-app", feed ->
+                    feed.restClientBuilder().requestInterceptor((request, body, execution) -> {
+                        request.getHeaders().set(HttpHeaders.AUTHORIZATION, "token-" + TOKEN_MINTS.incrementAndGet());
                         return execution.execute(request, body);
                     }));
         }
@@ -113,6 +127,7 @@ class FeedConsumerWireMockTest extends AbstractAtomiumFeedIT {
         eventListener.reset();
         interruptingListener.reset();
         InlineExecutorConfig.INTERCEPTOR_CALLS.set(0);
+        InlineExecutorConfig.TOKEN_MINTS.set(0);
         jdbcClient.sql("TRUNCATE atomium_feed_pointer_v1").update();
     }
 
@@ -282,7 +297,7 @@ class FeedConsumerWireMockTest extends AbstractAtomiumFeedIT {
     }
 
     /**
-     * The {@link BatchedFeedHandler} variant: entries are buffered in a {@link FeedHandlerBatch}, deduplicated,
+     * The {@link be.wegenenverkeer.atomium.client.handler.BatchedFeedHandler} variant: entries are buffered in a {@link FeedHandlerBatch}, deduplicated,
      * and only processed in one go at the threshold (or at the end of the feed) — together with the feed pointer, in
      * one transaction.
      *
@@ -577,6 +592,40 @@ class FeedConsumerWireMockTest extends AbstractAtomiumFeedIT {
 
         // the interceptor ran (once per fetched page) and the regular processing stayed intact
         assertThat(InlineExecutorConfig.INTERCEPTOR_CALLS.get()).isGreaterThan(0);
+        assertThat(eventListener.events()).contains("endOfFeedReached");
+    }
+
+    /**
+     * Auth (typically a JWT) is applied via a request interceptor and must be minted <em>per HTTP request</em>: the
+     * run that retries after a failed run must carry a freshly minted header, never a value reused from the failed
+     * attempt. (The predecessor of this suite froze the {@code Authorization} header of the first attempt in its
+     * retry loop; during a long outage the token expired mid-loop and every retry after that was rejected with a 403
+     * until the application was restarted.)
+     */
+    @Test
+    void theRetryAfterAFailedRunCarriesAFreshlyMintedAuthorizationHeader() {
+        // the source fails once on the head fetch, then recovers
+        wiremock.stubFor(get(urlPathEqualTo("/feed")).inScenario("recovering source")
+                .whenScenarioStateIs(Scenario.STARTED)
+                .willSetStateTo("recovered")
+                .willReturn(aResponse().withStatus(500)));
+        wiremock.stubFor(get(urlPathEqualTo("/feed")).inScenario("recovering source")
+                .whenScenarioStateIs("recovered")
+                .willReturn(okJson(resource("2-v1.json"))));
+        wiremock.stubFor(get(urlPathEqualTo("/feed/0")).willReturn(okJson(resource("0.json"))));
+        wiremock.stubFor(get(urlPathEqualTo("/feed/1")).willReturn(okJson(resource("1.json"))));
+        wiremock.stubFor(get(urlPathEqualTo("/feed/2")).willReturn(okJson(resource("2-v1.json"))));
+
+        consume(handler.getFeedId());   // run 1: fails on the head fetch
+        assertThat(eventListener.events()).endsWith("runFailed(1)");
+
+        consume(handler.getFeedId());   // run 2: the retry succeeds
+
+        // the failed attempt used token-1; the retry minted token-2 instead of reusing token-1
+        wiremock.verify(getRequestedFor(urlPathEqualTo("/feed"))
+                .withHeader(HttpHeaders.AUTHORIZATION, equalTo("token-1")));
+        wiremock.verify(getRequestedFor(urlPathEqualTo("/feed"))
+                .withHeader(HttpHeaders.AUTHORIZATION, equalTo("token-2")));
         assertThat(eventListener.events()).contains("endOfFeedReached");
     }
 
