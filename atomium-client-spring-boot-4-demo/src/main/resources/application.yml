@@ -1,0 +1,91 @@
+spring:
+  application:
+    name: atomium-client-spring-boot-4-demo
+  datasource:
+    url: jdbc:postgresql://localhost:5801/atomiumdemo
+    username: atomiumdemo
+    password: atomiumdemo
+    driver-class-name: org.postgresql.Driver
+  docker:
+    compose:
+      enabled: true
+      file: compose.yml
+      # start-only: Spring does start the postgres, but does NOT stop it when the app shuts down.
+      # That way the db keeps running between runs (inspect/delete the pointer); wipe completely: `docker compose down`.
+      lifecycle-management: start-only
+      skip:
+        in-tests: true
+  flyway:
+    enabled: true
+
+server:
+  port: 14210
+  servlet:
+    context-path: /atomium-client-spring-boot-4-demo
+
+management:
+  endpoints:
+    web:
+      base-path: /management
+      exposure:
+        # metrics = JSON index/detail (human); prometheus = text format for the Prometheus server (scrape)
+        include: [health, info, loggers, mappings, metrics, prometheus]
+  endpoint:
+    health:
+      show-details: always
+
+logging:
+  level:
+    be.wegenenverkeer.atomium.client.springboot: DEBUG
+    be.wegenenverkeer.atomium.client.springboot.demo: DEBUG
+
+atomium:
+  admin:
+    # the admin endpoint is only exposed when this is explicitly true
+    enabled: true
+  feeds:
+    # the map key corresponds to FeedHandler.getFeedId()
+    simple:
+      # the consumer polls this app's own in-memory demo feed (DemoFeedEndpoint) → standalone, no external server
+      url: http://localhost:14210/atomium-client-spring-boot-4-demo/demo-feed
+      active-on-startup: true
+      initial-feed-pointer:
+        # Alternatives: 'now', 'oldest' or 'pointer' + page-link, or leave out once the feed has been warmed up
+        type: oldest
+
+    # The fully equipped demo feed: an EntryFeedHandler (the typical case) with a custom content DTO
+    # (MontyContent), accepts and pushEntry. Also shows ALL available per-feed properties, each with a comment
+    # (except batch.* — only meaningful with a BatchedFeedHandler, see simple-batched).
+    # Deliberately inactive (active-on-startup: false) so you activate it yourself during the demo; the code
+    # variation points of the customizer SPI live in FullMontyDemoConfiguration.
+    full-monty:
+      # the feed base url (generic, mandatory)
+      url: http://localhost:14210/atomium-client-spring-boot-4-demo/demo-feed
+      # whether the consumer is activated automatically at startup (default false)
+      active-on-startup: false
+      # poll frequency: how often the scheduler may trigger a run (default 1m)
+      query-interval: 1m
+      # the start position for a brand-new feed (only used as long as no pointer has been persisted yet)
+      initial-feed-pointer:
+        # oldest | now | pointer  (mandatory when the block is present)
+        type: oldest
+        # only for type 'pointer': the explicit page href (e.g. /0/100); leave out otherwise
+        # page-link: /0/100
+      # backoff on consecutive failed runs (exponential: interval = initial-interval * multiplier^(n-1), capped at max-interval)
+      backoff:
+        initial-interval: 1m   # wait time after the first failure (default 1m)
+        max-interval: 1h       # upper bound on the wait time (default 1h)
+        multiplier: 2          # growth factor per failure (default 2)
+
+    # The simplest possible batch demo: a BatchedFeedHandler on a raw JsonNode (SimpleBatchedFeedHandler) with
+    # the bundled DefaultFeedHandlerBatch. Also inactive: activate it during the demo — the backlog that 'simple'
+    # meanwhile made grow then immediately becomes visible as it gets processed in batches.
+    simple-batched:
+      url: http://localhost:14210/atomium-client-spring-boot-4-demo/demo-feed
+      active-on-startup: false
+      initial-feed-pointer:
+        type: oldest
+      # batch tuning (only meaningful with a BatchedFeedHandler; on an EntryFeedHandler preferred-batch-size fails fast)
+      batch:
+        preferred-batch-size: 5          # the batch is 'complete' at this many distinct keys; empty -> 100
+        max-unflushed-pages: 10  # safety net: force a commit after this many pages without a flush; empty -> 10

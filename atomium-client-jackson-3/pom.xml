@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>be.wegenenverkeer</groupId>
+        <artifactId>atomium-client</artifactId>
+        <version>4.0.0-SNAPSHOT</version>
+    </parent>
+
+    <artifactId>atomium-client-jackson-3</artifactId>
+
+    <!--
+      FeedPageDecoder adapter based on Jackson 3 (tools.jackson). For applications that do not use Spring
+      but do use Jackson. The only third-party dep (besides core) is jackson-databind; the baseline version
+      (jackson.version) comes from the atomium parent. For Jackson 2 a separate atomium-client-jackson-2
+      would exist next to this module (different packages, com.fasterxml).
+    -->
+    <dependencies>
+        <dependency>
+            <groupId>be.wegenenverkeer</groupId>
+            <artifactId>atomium-client-core</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>tools.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
+        </dependency>
+
+        <!-- test -->
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.assertj</groupId>
+            <artifactId>assertj-core</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+</project>

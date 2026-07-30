@@ -1,0 +1,15 @@
+GET {{baseUrl}}/management/health
+
+###
+
+GET {{baseUrl}}/management/prometheus
+
+###
+
+GET {{baseUrl}}/management/metrics
+
+###
+
+GET {{baseUrl}}/management/metrics/atomium.entries.last.commit.time
+
+###

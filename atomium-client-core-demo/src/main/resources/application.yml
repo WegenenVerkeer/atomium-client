@@ -1,0 +1,42 @@
+spring:
+  application:
+    name: atomium-client-core-demo
+  # H2 in-memory for the full-monty building blocks (pointer persistence + transactions); no Docker required.
+  # DB_CLOSE_DELAY=-1: the database stays alive as long as the JVM runs (even without open connections).
+  datasource:
+    url: jdbc:h2:mem:coredemo;DB_CLOSE_DELAY=-1
+    driver-class-name: org.h2.Driver
+  sql:
+    init:
+      # creates the demo_feed_pointer table (schema.sql)
+      mode: always
+
+server:
+  port: 14220
+  servlet:
+    context-path: /atomium-client-core-demo
+
+logging:
+  level:
+    be.wegenenverkeer.atomium.client.handler: DEBUG
+    be.wegenenverkeer.atomium.client.core.demo: DEBUG
+
+demo:
+  # the source feed: the app's own in-memory DemoFeedEndpoint → standalone, no external server
+  feed-url: http://localhost:14220/atomium-client-core-demo/demo-feed
+  # the poll frequency of the feeds (short, so the demo stays lively)
+  query-interval: 5s
+  simple:
+    # the simple feed consumes right away on startup
+    active-on-startup: true
+  full-monty:
+    # deliberately inactive: activate it during the demo (PUT /rest/demo/feeds/full-monty/activate);
+    # by then the simple feed has already made the source feed grow → a backlog that gets processed immediately
+    active-on-startup: false
+  simple-batched:
+    # also inactive: activate it during the demo — the backlog then visibly gets processed in batches
+    active-on-startup: false
+    # the batch is 'complete' at this many distinct keys
+    preferred-batch-size: 5
+    # safety net: force a commit after this many pages without a flush
+    max-unflushed-pages: 10

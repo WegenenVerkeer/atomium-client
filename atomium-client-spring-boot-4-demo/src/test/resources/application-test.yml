@@ -1,0 +1,16 @@
+spring:
+  docker:
+    compose:
+      enabled: false        # the test uses testcontainers, not docker-compose
+  flyway:
+    enabled: true
+
+# feed config present (otherwise the config binding fails / fail-fast), but inactive so the test touches no network
+atomium:
+  feeds:
+    simple:
+      url: http://localhost:1/feed
+      active-on-startup: false
+      query-interval: 1h
+      initial-feed-pointer:
+        type: now

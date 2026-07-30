@@ -1,0 +1,15 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      - POSTGRES_DB=atomiumdemo
+      - POSTGRES_USER=atomiumdemo
+      - POSTGRES_PASSWORD=atomiumdemo
+    ports:
+      # dedicated port (5801) so it does not clash with other local databases
+      - "5801:5432"
+    healthcheck:
+      test: "pg_isready -U atomiumdemo -d atomiumdemo"
+      interval: 1s
+      timeout: 10s
+      retries: 30

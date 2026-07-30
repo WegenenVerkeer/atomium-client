@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>be.wegenenverkeer</groupId>
+        <artifactId>atomium-client</artifactId>
+        <version>4.0.0-SNAPSHOT</version>
+    </parent>
+
+    <artifactId>atomium-client-restclient</artifactId>
+
+    <!--
+      FeedHttpClient adapter based on the Spring RestClient. The only third-party dep (besides core) is
+      spring-web; the application supplies a configured RestClient (base-url, logging, retries, auth).
+      We compile against the minimum baseline (spring.version, 6.1 — the first version with RestClient); an
+      application on a newer Spring lifts it transitively. In test scope this module depends on
+      atomium-client-jackson-3 so the integration test uses the real decoder (end-to-end via WireMock).
+    -->
+    <dependencies>
+        <dependency>
+            <groupId>be.wegenenverkeer</groupId>
+            <artifactId>atomium-client-core</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework</groupId>
+            <artifactId>spring-web</artifactId>
+            <version>${spring.version}</version>
+        </dependency>
+
+        <!-- test -->
+        <dependency>
+            <groupId>be.wegenenverkeer</groupId>
+            <artifactId>atomium-client-jackson-3</artifactId>
+            <version>${project.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <!--
+          The shaded 'standalone' variant bundles its own (relocated) Jetty, so that WireMock's
+          embedded server does not clash with another Jetty on the test path.
+        -->
+        <dependency>
+            <groupId>org.wiremock</groupId>
+            <artifactId>wiremock-standalone</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.assertj</groupId>
+            <artifactId>assertj-core</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+</project>

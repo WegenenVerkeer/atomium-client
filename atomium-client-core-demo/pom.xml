@@ -1,0 +1,91 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>be.wegenenverkeer</groupId>
+        <artifactId>atomium-client</artifactId>
+        <version>4.0.0-SNAPSHOT</version>
+        <relativePath>../pom.xml</relativePath>
+    </parent>
+
+    <artifactId>atomium-client-core-demo</artifactId>
+
+    <!--
+      Standalone demo application for atomium-client-core: shows how an application uses both core APIs
+      WITHOUT the atomium-client-spring-boot-4 module — the fetch API directly, and the handler API by
+      assembling the Feed itself from the building blocks. Spring Boot only serves as application setup here
+      (web endpoint, properties, H2 datasource); the assembly is exactly what any other stack would write
+      too. For local experimentation only; no Docker needed (H2 in-memory).
+    -->
+    <dependencyManagement>
+        <dependencies>
+            <dependency>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-dependencies</artifactId>
+                <version>${spring-boot.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+
+    <dependencies>
+        <!-- the core APIs (fetch + handler) and the two adapter libs -->
+        <dependency>
+            <groupId>be.wegenenverkeer</groupId>
+            <artifactId>atomium-client-core</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>be.wegenenverkeer</groupId>
+            <artifactId>atomium-client-jackson-3</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>be.wegenenverkeer</groupId>
+            <artifactId>atomium-client-restclient</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+
+        <!-- web: the in-memory source feed (DemoFeedEndpoint) and the demo endpoints (fetch, activate/deactivate/push) -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+
+        <!-- DataSource + JdbcClient + transactions for the full-monty building blocks (H2 in-memory: no Docker needed) -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-jdbc</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.h2database</groupId>
+            <artifactId>h2</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+
+        <!-- test: context-load smoke test (no Docker needed) -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+                <version>${spring-boot.version}</version>
+                <configuration>
+                    <mainClass>be.wegenenverkeer.atomium.client.core.demo.CoreDemoApplication</mainClass>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+
+</project>

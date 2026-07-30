@@ -1,0 +1,17 @@
+{
+  "id": "test feed",
+  "base": "/feed",
+  "title": "test feed",
+  "generator": { "text": "test", "uri": "urn:test", "version": "1.0" },
+  "updated": "2026-01-31T12:04:00+01:00",
+  "links": [
+    { "rel": "self", "href": "/1" },
+    { "rel": "last", "href": "/0" },
+    { "rel": "next", "href": "/0" },
+    { "rel": "previous", "href": "/2" }
+  ],
+  "entries": [
+    { "_type": "atom", "id": "id-004", "updated": "2026-01-31T12:04:00+01:00", "content": { "type": "", "value": { "aField": "d" } }, "links": [] },
+    { "_type": "atom", "id": "id-003", "updated": "2026-01-31T12:03:00+01:00", "content": { "type": "", "value": { "aField": "c" } }, "links": [] }
+  ]
+}

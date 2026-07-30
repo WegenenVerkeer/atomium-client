@@ -1,0 +1,3 @@
+be.wegenenverkeer.atomium.client.springboot.AtomiumFeedAutoConfiguration
+be.wegenenverkeer.atomium.client.springboot.AtomiumMetricsAutoConfiguration
+be.wegenenverkeer.atomium.client.springboot.AtomiumHealthAutoConfiguration

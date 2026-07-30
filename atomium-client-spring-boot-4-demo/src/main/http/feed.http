@@ -1,0 +1,67 @@
+GET {{baseUrl}}/rest/atomium/feed-pointer
+Authorization: Basic {{user}} {{password}}
+
+###
+
+GET {{baseUrl}}/rest/atomium/status
+Authorization: Basic {{user}} {{password}}
+
+###
+
+GET {{baseUrl}}/rest/atomium/config
+Authorization: Basic {{user}} {{password}}
+
+###
+
+GET {{baseUrl}}/rest/atomium/feed/{{feedId}}/feed-pointer
+Authorization: Basic {{user}} {{password}}
+
+###
+
+GET {{baseUrl}}/rest/atomium/feed/{{feedId}}/status
+Authorization: Basic {{user}} {{password}}
+
+###
+
+GET {{baseUrl}}/rest/atomium/feed/{{feedId}}/config
+Authorization: Basic {{user}} {{password}}
+
+###
+
+PUT {{baseUrl}}/rest/atomium/feed/{{feedId}}/activate
+Authorization: Basic {{user}} {{password}}
+
+###
+
+PUT {{baseUrl}}/rest/atomium/feed/{{feedId}}/deactivate
+Authorization: Basic {{user}} {{password}}
+
+###
+
+GET {{baseUrl}}/rest/atomium/feed/{{feedId}}/feed
+Authorization: Basic {{user}} {{password}}
+
+###
+
+GET {{baseUrl}}/rest/atomium/feed/{{feedId}}/feed/0
+Authorization: Basic {{user}} {{password}}
+
+###
+
+PUT {{baseUrl}}/rest/atomium/feed/{{feedId}}/feed-pointer
+Authorization: Basic {{user}} {{password}}
+Content-Type: application/json
+
+{
+    "pageLink": "/0",
+    "eventId": "id-001"
+}
+
+###
+
+POST {{baseUrl}}/rest/atomium/feed/{{feedId}}/push
+Authorization: Basic {{user}} {{password}}
+
+{
+    "aField" :  "Hello World!"
+}

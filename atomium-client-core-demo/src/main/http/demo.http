@@ -1,0 +1,34 @@
+### The fetch demo: read the complete feed from start to end (low-level fetch API)
+GET http://localhost:14220/atomium-client-core-demo/rest/demo/fetch
+
+### Status of the handler feeds
+GET http://localhost:14220/atomium-client-core-demo/rest/demo/feeds
+
+### Activate the full-monty feed (processes the backlog immediately)
+PUT http://localhost:14220/atomium-client-core-demo/rest/demo/feeds/full-monty/activate
+
+### Deactivate the full-monty feed (a run in progress stops after the next commit point)
+PUT http://localhost:14220/atomium-client-core-demo/rest/demo/feeds/full-monty/deactivate
+
+### Activate the simple-batched feed (processes the backlog in batches)
+PUT http://localhost:14220/atomium-client-core-demo/rest/demo/feeds/simple-batched/activate
+Content-Type: application/json
+
+### Deactivate the simple-batched feed
+PUT http://localhost:14220/atomium-client-core-demo/rest/demo/feeds/simple-batched/deactivate
+Content-Type: application/json
+
+### Deactivate/activate the simple feed
+PUT http://localhost:14220/atomium-client-core-demo/rest/demo/feeds/simple/deactivate
+
+###
+PUT http://localhost:14220/atomium-client-core-demo/rest/demo/feeds/simple/activate
+
+### Push a standalone content item onto the full-monty feed (the EntryPusher building block)
+POST http://localhost:14220/atomium-client-core-demo/rest/demo/feeds/full-monty/push
+Content-Type: application/json
+
+{"aField": "recovered-042"}
+
+### View the raw source feed (head; note: every head poll adds an entry)
+GET http://localhost:14220/atomium-client-core-demo/demo-feed

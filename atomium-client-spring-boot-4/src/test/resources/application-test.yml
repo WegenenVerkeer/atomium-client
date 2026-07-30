@@ -1,0 +1,42 @@
+spring:
+  application:
+    name: atomium-client-spring-boot-4-it
+
+# The feed url is generic (every app needs it); the test TestFeedRestClientBuilders builds a RestClient from it.
+atomium:
+  feeds:
+    # FooAppFeedHandler
+    foo-app:
+      url: http://localhost:${wiremock.feed.port}/feed
+      # large interval: the behavior test triggers the runs itself; this keeps the scheduler from ticking in between
+      query-interval: 1h
+      initial-feed-pointer:
+        type: oldest
+    # FooAppBatchFeedHandler (BatchedFeedHandler: batching + dedup + accepts)
+    foo-app-batch:
+      url: http://localhost:${wiremock.feed.port}/feed
+      query-interval: 1h
+      initial-feed-pointer:
+        type: oldest
+      batch:
+        # small threshold so the dedup/threshold scenarios stay short
+        preferred-batch-size: 3
+    # FooAppBatchCapFeedHandler: the threshold is never reached, so only the page safety net can still flush
+    foo-app-batch-cap:
+      url: http://localhost:${wiremock.feed.port}/feed
+      query-interval: 1h
+      initial-feed-pointer:
+        type: oldest
+      batch:
+        preferred-batch-size: 100
+        max-unflushed-pages: 2
+    # FooAppEmptyPageFeedHandler
+    foo-app-empty-page:
+      url: http://localhost:${wiremock.feed.port}/feed
+      query-interval: 1h
+      initial-feed-pointer:
+        type: oldest
+
+logging:
+  level:
+    WireMock: ERROR

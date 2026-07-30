@@ -1,0 +1,20 @@
+{
+  "id": "test feed",
+  "base": "/feed",
+  "title": "test feed",
+  "generator": { "text": "test", "uri": "urn:test", "version": "1.0" },
+  "updated": "2026-01-31T12:06:00+01:00",
+  "links": [
+    { "rel": "self", "href": "/0" },
+    { "rel": "last", "href": "/0" },
+    { "rel": "previous", "href": "/1" }
+  ],
+  "entries": [
+    { "_type": "atom", "id": "id-006", "updated": "2026-01-31T12:06:00+01:00", "content": { "type": "", "value": { "aField": "alfa" } }, "links": [] },
+    { "_type": "atom", "id": "id-005", "updated": "2026-01-31T12:05:00+01:00", "content": { "type": "", "value": { "aField": "beta" } }, "links": [] },
+    { "_type": "atom", "id": "id-004", "updated": "2026-01-31T12:04:00+01:00", "content": { "type": "", "value": { "aField": "gamma" } }, "links": [] },
+    { "_type": "atom", "id": "id-003", "updated": "2026-01-31T12:03:00+01:00", "content": { "type": "", "value": { "aField": "alfa" } }, "links": [] },
+    { "_type": "atom", "id": "id-002", "updated": "2026-01-31T12:02:00+01:00", "content": { "type": "", "value": { "aField": "beta" } }, "links": [] },
+    { "_type": "atom", "id": "id-001", "updated": "2026-01-31T12:01:00+01:00", "content": { "type": "", "value": { "aField": "alfa" } }, "links": [] }
+  ]
+}
