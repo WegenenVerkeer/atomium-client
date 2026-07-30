@@ -12,6 +12,7 @@
 
     <artifactId>atomium-client-bom</artifactId>
     <packaging>pom</packaging>
+    <name>${project.groupId}:${project.artifactId}</name>
 
     <!--
       Bill of Materials for the atomium-client suite. Import this BOM (scope=import) to pin all atomium-client

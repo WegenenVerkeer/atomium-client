@@ -11,6 +11,7 @@
     </parent>
 
     <artifactId>atomium-client-jackson-3</artifactId>
+    <name>${project.groupId}:${project.artifactId}</name>
 
     <!--
       FeedPageDecoder adapter based on Jackson 3 (tools.jackson). For applications that do not use Spring

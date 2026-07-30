@@ -1,0 +1,56 @@
+name: Release
+
+# Triggered by pushing a version tag, e.g. `v2.0.1`.
+# The tag drives the released version: v2.0.1 -> 2.0.1 (a non-SNAPSHOT release,
+# which routes publishing to the Central Portal staging/release flow).
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Derive release version from tag
+        id: version
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: corretto
+          java-version: 25
+          cache: maven
+          server-id: central
+          server-username: SONATYPE_USERNAME
+          server-password: SONATYPE_PASSWORD
+
+      - name: Import GPG signing key
+        # GPG_PRIVATE_KEY is the dedicated CI signing key, stored base64-encoded and
+        # WITHOUT a passphrase (see gpg-signing-subkey-setup.md), so it needs no
+        # passphrase secret and no loopback/pinentry setup. Decode before importing.
+        run: |
+          echo "$GPG_PRIVATE_KEY" | base64 --decode | gpg --batch --import
+          gpg --list-secret-keys --keyid-format=long
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+
+      - name: Set release version
+        run: >-
+          ./mvnw --batch-mode --no-transfer-progress
+          org.codehaus.mojo:versions-maven-plugin:2.21.0:set
+          -DnewVersion="${{ steps.version.outputs.version }}"
+          -DgenerateBackupPoms=false
+
+      - name: Build, test and release to Maven Central
+        # The release profile signs every published artifact; the central profile
+        # uploads, validates and publishes the reactor bundle through the Portal.
+        run: ./mvnw --batch-mode --no-transfer-progress clean deploy -Pcentral,release
+        env:
+          SONATYPE_USERNAME: ${{ secrets.SONATYPE_USERNAME }}
+          SONATYPE_PASSWORD: ${{ secrets.SONATYPE_PASSWORD }}

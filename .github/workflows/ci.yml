@@ -1,0 +1,49 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: corretto
+          java-version: 25
+          cache: maven
+          server-id: central
+          server-username: SONATYPE_USERNAME
+          server-password: SONATYPE_PASSWORD
+
+      - name: Run tests
+        run: ./mvnw --batch-mode --no-transfer-progress clean verify
+
+      - name: Verify SNAPSHOT version
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          version="$(./mvnw --batch-mode --no-transfer-progress help:evaluate \
+            -Dexpression=project.version -DforceStdout -q)"
+          case "$version" in
+            *-SNAPSHOT) ;;
+            *)
+              echo "Refusing to publish non-SNAPSHOT version: $version" >&2
+              exit 1
+              ;;
+          esac
+
+      - name: Publish SNAPSHOT to Maven Central
+        # Only on direct pushes to main (not PRs, which lack access to the
+        # secrets). The default version is a -SNAPSHOT, so `deploy` routes to
+        # the Central Portal snapshot repository; snapshots are unsigned, so no
+        # GPG key import is needed here.
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: ./mvnw --batch-mode --no-transfer-progress deploy -Pcentral -DskipTests
+        env:
+          SONATYPE_USERNAME: ${{ secrets.SONATYPE_USERNAME }}
+          SONATYPE_PASSWORD: ${{ secrets.SONATYPE_PASSWORD }}

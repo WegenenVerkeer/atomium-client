@@ -11,6 +11,7 @@
     </parent>
 
     <artifactId>atomium-client-spring-boot-4</artifactId>
+    <name>${project.groupId}:${project.artifactId}</name>
 
     <!--
       Spring Boot 4 integration layer on top of atomium-client-{core,jackson-3,restclient}: discovers

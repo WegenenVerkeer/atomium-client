@@ -12,6 +12,7 @@
     </parent>
 
     <artifactId>atomium-client-spring-boot-4-demo</artifactId>
+    <name>${project.groupId}:${project.artifactId}</name>
 
     <!--
       Standalone demo application for atomium-client-spring-boot-4: shows that a Spring Boot application can

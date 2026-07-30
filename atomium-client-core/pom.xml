@@ -11,6 +11,7 @@
     </parent>
 
     <artifactId>atomium-client-core</artifactId>
+    <name>${project.groupId}:${project.artifactId}</name>
 
     <!--
       Framework-independent core: the only runtime dependencies are jspecify (nullness annotations) and

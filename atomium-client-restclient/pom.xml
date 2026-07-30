@@ -11,6 +11,7 @@
     </parent>
 
     <artifactId>atomium-client-restclient</artifactId>
+    <name>${project.groupId}:${project.artifactId}</name>
 
     <!--
       FeedHttpClient adapter based on the Spring RestClient. The only third-party dep (besides core) is

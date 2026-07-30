@@ -12,6 +12,7 @@
     </parent>
 
     <artifactId>atomium-client-core-demo</artifactId>
+    <name>${project.groupId}:${project.artifactId}</name>
 
     <!--
       Standalone demo application for atomium-client-core: shows how an application uses both core APIs
