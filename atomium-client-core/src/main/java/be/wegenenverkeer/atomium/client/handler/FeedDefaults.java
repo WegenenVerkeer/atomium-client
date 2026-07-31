@@ -8,11 +8,14 @@ package be.wegenenverkeer.atomium.client.handler;
  */
 public final class FeedDefaults {
 
-    /** The batch size of a {@link BatchedFeedHandler} without an explicit {@link Feed#preferredBatchSize()}. */
-    public static final int PREFERRED_BATCH_SIZE = 100;
+    /**
+     * The batch size of a {@link SimpleBatchedProcessingFeedHandler} without an explicit
+     * {@link Feed#preferredProcessingSize()}.
+     */
+    public static final int PREFERRED_PROCESSING_SIZE = 100;
 
-    /** The safety net {@link Feed#maxUnflushedPages()}: force a flush after this many pages without a flush. */
-    public static final int MAX_UNFLUSHED_PAGES = 10;
+    /** The safety net {@link Feed#maxUncommittedPages()}: ask for a wrap-up after this many pages without a commit. */
+    public static final int MAX_UNCOMMITTED_PAGES = 10;
 
     private FeedDefaults() {
     }

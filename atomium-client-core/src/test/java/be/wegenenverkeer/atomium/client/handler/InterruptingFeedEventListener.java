@@ -1,10 +1,12 @@
 package be.wegenenverkeer.atomium.client.handler;
 
+import be.wegenenverkeer.atomium.client.fetch.EventCoordinate;
+import be.wegenenverkeer.atomium.client.fetch.FeedPointer;
 import be.wegenenverkeer.atomium.client.protocol.FeedPageMetadata;
 import be.wegenenverkeer.atomium.client.protocol.FeedPageRel;
 import org.jspecify.annotations.Nullable;
 
-import java.util.List;
+import java.time.OffsetDateTime;
 
 /**
  * Test {@link FeedEventListener} with which a test can interrupt a running run <em>at an exact point</em>.
@@ -19,15 +21,20 @@ public class InterruptingFeedEventListener implements FeedEventListener {
     private @Nullable String trigger;
     private @Nullable Runnable action;
 
-    /** Run {@code action} once, immediately after the event {@code trigger} (e.g. {@code "entriesProcessed(id-002)"}). */
+    /**
+     * Run {@code action} once, immediately after the event {@code trigger}: {@code "committed(id-002)"} (the
+     * commit whose pointer sits at that event) or {@code "pageProcessed(/0)"}.
+     */
     public void interruptAfter(String trigger, Runnable action) {
         this.trigger = trigger;
         this.action = action;
     }
 
     @Override
-    public void entriesProcessed(String feedId, List<? extends BatchEntry<?>> entries) {
-        entries.forEach(batchEntry -> fireIfTriggered("entriesProcessed(%s)".formatted(batchEntry.entry().id())));
+    public void feedPointerAdvanced(String feedId, FeedPointer feedPointer, FeedRunResult sincePreviousCommit,
+                                    @Nullable OffsetDateTime latestEventUpdated) {
+        EventCoordinate lastEvent = feedPointer.lastEvent();
+        fireIfTriggered("committed(%s)".formatted(lastEvent == null ? "-" : lastEvent.eventId()));
     }
 
     @Override

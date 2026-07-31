@@ -1,11 +1,12 @@
 package be.wegenenverkeer.atomium.client.springboot;
 
-import be.wegenenverkeer.atomium.client.handler.BatchedFeedHandler;
 import be.wegenenverkeer.atomium.client.handler.EntryFeedHandler;
 import be.wegenenverkeer.atomium.client.handler.FeedEventListener;
 import be.wegenenverkeer.atomium.client.handler.FeedHandler;
-import be.wegenenverkeer.atomium.client.handler.FeedHandlerBatch;
 import be.wegenenverkeer.atomium.client.handler.PerFeedThreadExecutors;
+import be.wegenenverkeer.atomium.client.handler.ProcessResult;
+import be.wegenenverkeer.atomium.client.handler.ProcessingEntry;
+import be.wegenenverkeer.atomium.client.handler.SimpleBatchedProcessingFeedHandler;
 
 import be.wegenenverkeer.atomium.client.protocol.AtomiumEntry;
 import be.wegenenverkeer.atomium.client.protocol.FeedPageMetadata;
@@ -110,36 +111,41 @@ class FeedFactoryConfigurationTest {
     }
 
     /**
-     * The <em>configuration validation</em> (with the property name in the message): a {@code preferred-batch-size}
+     * The <em>configuration validation</em> (with the property name in the message): a {@code processing.preferred-size}
      * on a feed with an {@link EntryFeedHandler} is a configuration mistake — that handler processes per entry, so the threshold
      * is always 1. We reject the property fail-fast at startup instead of silently ignoring it. (Core additionally
      * asserts the same condition framework-neutrally; see {@code FeedRuntimeTest} in core.)
      */
     @Test
-    void aPreferredBatchSizeOnAnEntryFeedHandlerFailsWithThePropertyName() {
+    void aPreferredSizeOnAnEntryFeedHandlerFailsWithThePropertyName() {
         assertThatIllegalStateException()
-                .isThrownBy(() -> FeedFactory.validateBatchConfig(
-                        "feed", handler("feed"), new AtomiumFeedProperties.Batch(50, 10)))
-                .withMessageContaining("atomium.feeds.feed.batch.preferred-batch-size")
+                .isThrownBy(() -> FeedFactory.validateProcessingConfig(
+                        "feed", handler("feed"), new AtomiumFeedProperties.Processing(50, 10)))
+                .withMessageContaining("atomium.feeds.feed.processing.preferred-size")
                 .withMessageContaining("EntryFeedHandler");
     }
 
-    /** On a {@link BatchedFeedHandler} the property <em>is</em> meaningful. */
+    /** On a {@link SimpleBatchedProcessingFeedHandler} the property <em>is</em> meaningful. */
     @Test
-    void aPreferredBatchSizeOnABatchedFeedHandlerIsValid() {
-        assertThatNoException().isThrownBy(() -> FeedFactory.validateBatchConfig(
-                "feed", batchHandler("feed"), new AtomiumFeedProperties.Batch(50, 10)));
+    void aPreferredSizeOnABatchedHandlerIsValid() {
+        assertThatNoException().isThrownBy(() -> FeedFactory.validateProcessingConfig(
+                "feed", batchHandler("feed"), new AtomiumFeedProperties.Processing(50, 10)));
     }
 
-    private static BatchedFeedHandler<String> batchHandler(String feedId) {
-        return new BatchedFeedHandler<>() {
+    private static SimpleBatchedProcessingFeedHandler<String, Integer> batchHandler(String feedId) {
+        return new SimpleBatchedProcessingFeedHandler<>() {
             @Override
             public String getFeedId() {
                 return feedId;
             }
 
             @Override
-            public void onBatch(FeedHandlerBatch<String> batch) {
+            public ProcessResult<Integer> process(List<ProcessingEntry<String>> entries) {
+                return ProcessResult.of(entries.size());
+            }
+
+            @Override
+            public void persist(Integer prepared) {
             }
         };
     }
@@ -147,7 +153,7 @@ class FeedFactoryConfigurationTest {
     private static AtomiumFeedProperties props() {
         return new AtomiumFeedProperties("http://localhost/feed", false, Duration.ofMinutes(1), null,
                 new AtomiumFeedProperties.Backoff(Duration.ofMinutes(1), Duration.ofHours(1), 2),
-                new AtomiumFeedProperties.Batch(null, 10));
+                new AtomiumFeedProperties.Processing(null, 10));
     }
 
     private static FeedHandler<String> handler(String feedId) {

@@ -1,8 +1,8 @@
 package be.wegenenverkeer.atomium.client.springboot;
 
 import be.wegenenverkeer.atomium.client.springboot.AtomiumFeedProperties.Backoff;
-import be.wegenenverkeer.atomium.client.springboot.AtomiumFeedProperties.Batch;
 import be.wegenenverkeer.atomium.client.springboot.AtomiumFeedProperties.InitialFeedPointer;
+import be.wegenenverkeer.atomium.client.springboot.AtomiumFeedProperties.Processing;
 import be.wegenenverkeer.atomium.client.springboot.AtomiumFeedProperties.InitialFeedPointer.Type;
 
 import org.junit.jupiter.api.Nested;
@@ -39,7 +39,7 @@ class AtomiumFeedPropertiesTest {
 
         private static AtomiumFeedProperties feedProperties(Duration queryInterval) {
             return new AtomiumFeedProperties("http://localhost/feed", false, queryInterval, null,
-                    new Backoff(Duration.ofMinutes(1), Duration.ofHours(1), 2), new Batch(null, null));
+                    new Backoff(Duration.ofMinutes(1), Duration.ofHours(1), 2), new Processing(null, null));
         }
     }
 
@@ -75,21 +75,21 @@ class AtomiumFeedPropertiesTest {
     }
 
     @Nested
-    class BatchValidation {
+    class ProcessingValidation {
 
         @Test
         void lowerBoundIs1() {
             assertThatIllegalArgumentException()
-                    .isThrownBy(() -> new Batch(0, null))
-                    .withMessageContaining("batch.preferred-batch-size");
+                    .isThrownBy(() -> new Processing(0, null))
+                    .withMessageContaining("processing.preferred-size");
             assertThatIllegalArgumentException()
-                    .isThrownBy(() -> new Batch(null, 0))
-                    .withMessageContaining("batch.max-unflushed-pages");
+                    .isThrownBy(() -> new Processing(null, 0))
+                    .withMessageContaining("processing.max-uncommitted-pages");
         }
 
         @Test
         void emptyIsOkTheCoreDefaultsApply() {
-            assertThatCode(() -> new Batch(null, null)).doesNotThrowAnyException();
+            assertThatCode(() -> new Processing(null, null)).doesNotThrowAnyException();
         }
     }
 

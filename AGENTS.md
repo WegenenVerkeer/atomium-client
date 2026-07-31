@@ -80,28 +80,39 @@ lock-step (see `VERSIONING.md`).
 The heart is the **batch processing** and the **event model**; below is what you won't immediately derive from
 the code. See `DESIGN.md` for the class overview and the javadoc for the details.
 
-- **Two handler variants, one controller.** The developer implements `EntryFeedHandler` (per entry, the common
-  case) or `BatchedFeedHandler` (per deduplicated batch, for burst feeds). Both run through the **same**
-  `BatchedFeedHandlerController`: an `EntryFeedHandler` becomes a **batch-of-1** without dedup via
-  `EntryFeedHandlerAdapter`. That explains why there is an adapter and only one controller.
-- **The batch owns the mutable state, not the bean.** `FeedHandlerBatch` (created fresh per run/flush via
-  `startBatch(size)`) accumulates and decides for itself via `isComplete()` when it is done → the handler bean
-  stays stateless. `DefaultFeedHandlerBatch` dedups on a `keyExtractor` (last-wins, first-seen order), complete
-  on the number of distinct keys. **Dedup is per batch** (not cross-window) → processing should be idempotent.
-- **The controller reports a `Code`, the consumer decides about the transaction.** After every callback
-  `FeedHandlerController` returns a buffer state (`BUFFERING` / `BUFFER_COMPLETE` / `BUFFER_EMPTY`);
-  `FeedConsumerImpl` translates that into what happens to the tx and the pointer.
-- **Pitfall in the controller:** "batch not empty" has **two** answers that are **not** interchangeable — in the
-  middle of the feed (filtered-out entry, page boundary) it is `BUFFERING` (keep buffering), at the end of a run
-  (`onEndOfFeed`/`onInterrupted`) it is `BUFFER_COMPLETE` (flush the rest). Confusing them = a flush on every
-  page boundary.
-- **Transaction & pointer invariant.** The buffer is transaction-free; a short transaction only opens on the
-  flush — **never an open DB tx during an HTTP fetch**. `FeedConsumerImpl` uses the `FeedTransactions` port
-  (Boot impl on the regular `TransactionTemplate`; no manual tx). Two pointers: `pendingPointer` (where we would
-  be) vs `persistedPointer` (what is in the DB).
-  As long as the batch is uncommitted, the persisted pointer stays **pinned** → a crash re-reads that batch. No
-  needless writes (skip when pending == persisted, e.g. on a 304). Safety net against an unbounded re-read
-  window: `batch.max-unflushed-pages` forces a commit after N pages without a flush.
+- **Two handler variants, one internal seam.** The developer implements `EntryFeedHandler` (per entry, the
+  common case) or `SimpleBatchedProcessingFeedHandler` (per batch, in two phases: `process` outside the
+  transaction, `persist` inside it). Both are internal implementations of the package-private **`FeedProcessor`**
+  seam (`EntryFeedProcessor` / `SimpleBatchedFeedProcessor`): one fresh processor per run receives the entries
+  (`processEntry`, outside any transaction) and one checkpoint opportunity per boundary, with the strongest reason
+  (`PAGE_BOUNDARY` / `WINDOW_EXHAUSTED` / `END_OF_FEED` / `INTERRUPTED`), and answers with its state
+  (*idle* / *buffering* / *ready*). The maintainer notes on the anticipated growth path (publishing the
+  processor tier, partial checkpoints, state across commits) sit as code comments on `FeedProcessor` and on the
+  commit path in `FeedConsumerImpl` — read them before reshaping the seam.
+- **The processor owns the mutable state, not the bean.** The processor buffers the accepted entries (it also
+  applies `accepts` and counts accepted/processed); the handler bean stays stateless. The batch tier runs
+  `process` in the seam callback (outside any transaction, guaranteed) and holds the prepared `P` until
+  `persist()` runs inside the commit transaction. Dedup, if any, is application logic inside `process` (report
+  the count via `ProcessResult`) → processing should be idempotent.
+- **The processor answers, the consumer decides about the transaction.** *Buffering* as answer to an
+  opportunity is a legitimate refusal — the framework never forces a wrap-up. Refusing the safety net is logged
+  once per exceedance episode; refusing at `END_OF_FEED`/`INTERRUPTED` means discard-and-redo (state lost,
+  next run re-reads from the pinned pointer).
+- **Pointer promotion on a boundary.** A commit on a page/feed boundary writes the **page pointer**
+  (`page.nextFeedPointer()`), never the entry-level pointer: the entry pointer re-fetches the same page with a
+  filter, the page pointer jumps on with the etag. Commit the entry pointer on a boundary and every poll of a
+  quiet feed re-fetches its head instead of getting a 304. Note: some feed servers serve no `ETag` on the
+  head page at all; the client then falls back to a plain re-fetch of that page — expected behaviour, not a
+  bug (the 304 optimisation simply is not available against such a server).
+- **Transaction & pointer invariant.** The processing is transaction-free; a short transaction only opens on a
+  commit — **never an open DB tx during an HTTP fetch**, and mirror-image: **never a network call in
+  `persist`**. `FeedConsumerImpl` uses the `FeedTransactions` port (Boot impl on the regular
+  `TransactionTemplate`; no manual tx). Two pointers: `pendingPointer` (where we would be) vs
+  `persistedPointer` (what is in the DB).
+  As long as the processor holds uncommitted work, the persisted pointer stays **pinned** → a crash re-offers
+  that work. No needless writes (skip when pending == persisted, e.g. on a 304). Safety net against an
+  unbounded re-read window: once `processing.max-uncommitted-pages` pages are read without a commit, every boundary
+  offers `WINDOW_EXHAUSTED` (instead of `PAGE_BOUNDARY`) until a commit resets the window.
 - **Run timing: the runner decides, the scheduler ticks dumbly and frequently.** After every run the
   `FeedRunner` remembers a `nextRun` (on success `now + queryInterval`, on failure `now + backoff`);
   `tryToStart` refuses until that moment. The schedulers (`SimpleFeedScheduler` in core, `FeedScheduler` in
@@ -116,10 +127,13 @@ the code. See `DESIGN.md` for the class overview and the javadoc for the details
   `activate()`/`scheduleNextRunNow()`.
 - **Event emission — the most important invariant for anyone touching the event flow.** *All*
   `FeedEventListener` events are emitted by `FeedConsumerImpl`, each time **after** the commit point (never
-  inside a tx). The controller does **not** emit itself — it *reports*: `flush()` returns the actually processed
-  entries (post-`accepts`, post-dedup) and `result()` the counters (read/accepted/processed);
+  inside a tx). The processor does **not** emit itself — it *reports* its `accepted()`/`processed()` counters;
+  the consumer counts what was read and composes the `FeedRunResult`. `processed` is a free measure of
+  realised work (default: entries; a handler may count e.g. upserted business entities via `ProcessResult`,
+  so it may exceed `accepted` — there is deliberately no read ≥ accepted ≥ processed invariant).
   `feedPointerAdvanced` carries per commit the delta counters since the previous commit (so metrics also count
-  mid-way through a long run, without loss on a later failure).
+  mid-way through a long run, without loss on a later failure) plus `latestEventUpdated`, the freshness signal
+  that feeds the `atomium.entries.last.event.time` gauge.
   The only exception: `runFailed` comes from `FeedRunner` (which knows the backoff).
   Logging (`LoggingFeedEventListener`) and metrics (`MicrometerFeedEventListener`) are both just listeners — by
   design.
@@ -136,16 +150,16 @@ the code. See `DESIGN.md` for the class overview and the javadoc for the details
   sees nothing. That fails **silently** in a plain unit test → the demo context test explicitly asserts that the
   listener is wired.
 - **Config** under `atomium.feeds.<id>.*`: `url`, `active-on-startup`, `query-interval`,
-  `initial-feed-pointer`, `backoff`, and `batch.{preferred-batch-size, max-unflushed-pages}`. A
-  `preferred-batch-size` on an `EntryFeedHandler` → **fail-fast at startup** (the threshold there is always 1,
-  so it would be a silent no-op).
+  `initial-feed-pointer`, `backoff`, and `processing.{preferred-size, max-uncommitted-pages}`. A
+  `processing.preferred-size` on an `EntryFeedHandler` feed → **fail-fast at startup** (that handler
+  processes per entry — the threshold there is always 1, so it would be a silent no-op).
 - **Visibility.** Most internal machinery is deliberately **package-private**; a few types are public solely
   because the `admin` subpackage, the demos, or a `@ConditionalOnMissingBean` override needs them. Keep new
   internal stuff package-private. In **core**, public concrete classes are **final unless extension is an
-  intended extension point** — only `DefaultFeedHandlerBatch` and `LoggingFeedEventListener` (each with a
+  intended extension point** — only `LoggingFeedEventListener` (with a
   comment saying so) and the deliberately open exception hierarchy. In **spring-boot-4** the assembly/admin
   classes are not final (Spring configuration, `@ConditionalOnMissingBean` overrides).
-- **Defaults in one place.** Core behavior defaults in `FeedDefaults` (batch numbers), Boot binding defaults as
+- **Defaults in one place.** Core behavior defaults in `FeedDefaults` (processing numbers), Boot binding defaults as
   constants in `AtomiumFeedProperties.Defaults` (directly in the `@DefaultValue` annotations). Documentation
   references them with `{@value}` so it cannot drift — except markdown: the config table in the spring-boot-4
   README must be updated by hand on a change.
@@ -175,17 +189,21 @@ choices made, not this iteration or conversation. Concretely:
 ## Testing convention
 
 Preferably **high-level functional**, at two levels with the same `@Nested` theme layout (EntryFeedHandler /
-BatchedFeedHandler / Events / Interruption / failure paths / safety net): the **primary, fine-grained
+batch tier / Events / pointers & boundaries / Interruption / failure paths / safety net / counters): the **primary, fine-grained
 functional spec** is `FeedConsumerTest` in core (handler API on the real fetch API on top of
 `FakeFeedHttpClient`; no HTTP/Spring, synchronous runs via an inline executor, `RecordingFeedTransactions`
 counts commits/rollbacks); `FeedConsumerWireMockTest` in spring-boot-4 (WireMock feed + testcontainers
 postgres) proves the same scenarios **end-to-end through the whole stack** (autoconfig → HTTP → JDBC →
 transactions). New pure-consumer scenarios belong in core; only what touches the Boot shell must also go in the
-IT. Pure logic and conditions in targeted unit tests (`MicrometerFeedEventListenerTest`;
+IT. Seam behavior the two real processors never show (a declining processor) is driven with the scripted
+`ScriptedFeedProcessor` on a directly constructed consumer — still the real run loop. Pure logic and conditions in targeted unit tests (`MicrometerFeedEventListenerTest`;
 `AtomiumMetricsAutoConfigurationTest` via `ApplicationContextRunner`). Handy tricks: force an *interruption*
-with `InterruptingFeedEventListener` (calls `runner.deactivate()` from a listener callback); a *304* with an
-`ETag` stub + a second stub on `If-None-Match`; the *failure path* (rollback) with `handler.failAt(id)`; the
-*pointer positions* per commit via `RecordingFeedEventListener.pointerCommits()`.
+with `InterruptingFeedEventListener` (calls `runner.deactivate()` from a listener callback; mid-batch via the
+batch double's `whenOffered`); a *304* with an
+`ETag` stub + a second stub on `If-None-Match`; the *failure path* (rollback) with `handler.failAt(id)` or the
+batch double's `failInProcess()`/`failInPersist()`; the
+*pointer positions* per commit via `RecordingFeedEventListener.pointerCommits()` (and the per-commit deltas via
+`commitDeltas()`).
 
 ## Logging convention
 

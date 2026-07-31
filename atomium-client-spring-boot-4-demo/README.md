@@ -20,8 +20,8 @@ the generic lib with only the **narrow seam** — a single `FeedRestClientBuilde
   (`FullMontyDemoConfiguration`). Activate it during the demo (`active-on-startup: true` or via the admin endpoint):
   because `simple` already made the same feed grow, a **backlog** is waiting that gets processed right away.
 - The **`simple-batched`** feed (also inactive by default) is the simplest possible **batch processing**: a
-  `BatchedFeedHandler` on a raw `JsonNode` with the bundled `DefaultFeedHandlerBatch`
-  (`SimpleBatchedFeedHandler`); the batch tuning lives under `atomium.feeds.simple-batched.batch.*`. Activate it
+  `SimpleBatchedProcessingFeedHandler` on a raw `JsonNode` showing the two phases
+  (`SimpleBatchedFeedHandler`); the processing tuning lives under `atomium.feeds.simple-batched.processing.*`. Activate it
   and the backlog is visibly processed in batches.
 
 ## Running

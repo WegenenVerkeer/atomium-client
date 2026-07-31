@@ -13,8 +13,8 @@ import tools.jackson.databind.json.JsonMapper;
 
 /**
  * The assembly of the {@code simple-batched} feed: identical to the minimal {@code SimpleDemoConfiguration},
- * plus the builder's two batch knobs ({@code preferredBatchSize} and {@code maxUnflushedPages}) — the only
- * assembly-side part of batching; the rest (key, batch implementation) is a domain concern and lives in the
+ * plus the builder's two processing knobs ({@code preferredProcessingSize} and {@code maxUncommittedPages}) — the only
+ * assembly-side part of batching; what the batch does is a domain concern and lives in the
  * {@link SimpleBatchedFeedHandler}.
  */
 @Configuration
@@ -30,9 +30,9 @@ class SimpleBatchedDemoConfiguration {
                 .initialFeedPointer(atomiumClient::pointerToOldest)
                 .queryInterval(properties.queryInterval())
                 .activeOnStartup(properties.simpleBatched().activeOnStartup())
-                // batch tuning: the threshold the batch is given, and the page safety net
-                .preferredBatchSize(properties.simpleBatched().preferredBatchSize())
-                .maxUnflushedPages(properties.simpleBatched().maxUnflushedPages())
+                // batch tuning: the processing threshold, and the page safety net
+                .preferredProcessingSize(properties.simpleBatched().preferredProcessingSize())
+                .maxUncommittedPages(properties.simpleBatched().maxUncommittedPages())
                 .build();
         return FeedRuntime.of(feed);
     }

@@ -72,26 +72,29 @@ class MyEventFeedHandler implements EntryFeedHandler<MyEvent> {
 | --- | --- | --- |
 | `getFeedId()` | yes | The unique identity of the feed: at once the config key (`atomium.feeds.<feedId>`), the DB key, the thread name and the admin URL segment. Short and stable, **without dots**. |
 | `onEntry(pageMetadata, entry, content)` | yes (`EntryFeedHandler`) | For each event, in read order (oldest first). Its effect is committed in one transaction together with the advanced feed pointer. |
-| `onBatch(batch)` | yes (`BatchedFeedHandler`) | Per complete batch — see below. |
+| `process(entries)` / `persist(prepared)` | yes (`SimpleBatchedProcessingFeedHandler`) | Per batch, in two phases — see below. |
 | `accepts(pageMetadata, entry, content)` | no | Is this entry relevant? `false` → the framework ignores it entirely and simply advances the pointer past it. Default: everything is relevant. |
 | `pushEntry(content)` | no (opt-in) | Process an item **as if** it were on the feed (via the admin endpoint); unsupported by default. |
 
 The handler is **pure domain** (identity + callbacks) and **stateless**: the framework owns the buffer and hands the
 callback everything it needs. Infrastructure config happens elsewhere (see below).
 
-### The `BatchedFeedHandler<C>` — only for burst feeds
+### The `SimpleBatchedProcessingFeedHandler<C, P>` — batch processing in two phases
 
 Some feeds produce bursts of events faster than you can process them one by one (committing per entry is then
-too slow → you fall days behind). Such feeds moreover often carry many events about the **same entity**:
-"A changed" ×5, "B" ×3, "C" ×1 — nine events, three objects. Process those one by one and you do eight rounds
-of work that is immediately overwritten again.
+too slow → you fall days behind). And some processing is inherently batch-shaped: an asset repository system
+publishes change events, and you look the changed assets up in bulk against an API that accepts at most 1000
+ids per request — a call you do not want inside an open database transaction.
 
-A `BatchedFeedHandler` lets the framework **buffer and deduplicate** the entries, processing only the **last**
-state per key. The batch and the feed pointer are committed together in one transaction.
+A `SimpleBatchedProcessingFeedHandler` processes the feed per batch, in **two phases**: `process` prepares the
+batch **outside** any transaction (collect, dedupe, look things up remotely — may be slow, may be repeated
+after a crash), `persist` writes the prepared effect **inside** the transaction that also advances the feed
+pointer (fast and local — no network calls here). The framework carries the intermediate state `P` between
+the two, so your bean stays stateless.
 
 ```java
 @Component
-class MyEventFeedHandler implements BatchedFeedHandler<MyEvent> {
+class MyEventFeedHandler implements SimpleBatchedProcessingFeedHandler<MyEvent, List<Asset>> {
 
     @Override
     public String getFeedId() {
@@ -99,49 +102,50 @@ class MyEventFeedHandler implements BatchedFeedHandler<MyEvent> {
     }
 
     @Override
-    public FeedHandlerBatch<MyEvent> startBatch(int preferredBatchSize) {
-        return new DefaultFeedHandlerBatch<>(preferredBatchSize, MyEvent::entityId);
+    public ProcessResult<List<Asset>> process(List<ProcessingEntry<MyEvent>> entries) {
+        Set<String> ids = entries.stream().map(e -> e.content().assetId()).collect(toSet());
+        return ProcessResult.of(assetApi.lookup(ids), ids.size());   // remote call: outside the transaction
     }
 
     @Override
-    public void onBatch(FeedHandlerBatch<MyEvent> batch) {
-        for (BatchEntry<MyEvent> e : batch.getBuffer()) {   // only the last state per entity
-            ...
-        }
+    public void persist(List<Asset> assets) {
+        assets.forEach(repository::upsert);   // inside the transaction, atomic with the feed pointer
     }
 }
 ```
 
-Note who chooses what: **you choose the key** (`MyEvent::entityId` — that is domain and belongs in code), **the
-operator chooses the size** (`batch.preferred-batch-size` — tuning, and different per environment). The mutable
-state lives in the `FeedHandlerBatch`, which the framework creates fresh per batch, so your bean stays stateless.
+Note who chooses what: **you choose what a batch does** (`process`/`persist` — that is domain and belongs in
+code), **the operator chooses the size** (`processing.preferred-size` — tuning, and different per
+environment: the number of accepted entries at which a batch is processed).
 
 A few properties you should know:
 
-- `DefaultFeedHandlerBatch` is **complete** as soon as it counts the requested number of *distinct* keys; duplicates
-  therefore don't fill up the batch. `getBuffer()` returns the last entry per key, in order of first appearance.
-- **Dedup is per batch.** If the same entity appears in two consecutive batches, it is processed twice.
-  Your processing should therefore be idempotent.
-- An **incomplete batch** is still flushed at the end of the feed (or on a clean interruption): a batch
-  never survives a poll.
-- As long as a batch is unflushed, the feed pointer stays **pinned** — even across page boundaries. A crash then
-  replays that entire batch, which is the intent.
-- If you want your own policy (time-based, on a domain criterion, with your own aggregates), implement
-  `FeedHandlerBatch` yourself: `isComplete()` is the extension point.
+- Entries that `accepts` rejects do not enter the batch and **do not count toward the threshold**.
+- A **partial batch** is still wrapped up at the end of the feed (or on a clean interruption): a batch never
+  survives a poll.
+- If `process` or `persist` throws, the run fails: rollback, the pointer stays put, and the whole batch is
+  offered again on the next run. `process` must be able to cope with that — reads and idempotent calls are
+  fine; non-idempotent side effects belong in `persist`.
+- As long as a batch is not wrapped up, the feed pointer stays **pinned** — even across page boundaries. A
+  crash then replays that entire batch, which is the intent.
+- The framework counts `read` and `accepted` (feed entries). `processed` is yours: a free measure of the
+  work the batch realised — entities upserted, documents indexed, entries left after dedup — reported via
+  `ProcessResult.of(value, processed)`, and it may be smaller or larger than the number of offered entries.
+  Left unreported it defaults to the number of offered entries.
 
-#### The safety net: `batch.max-unflushed-pages`
+#### The safety net: `processing.max-uncommitted-pages`
 
-A feed that filters heavily (`accepts`) or deduplicates heavily sometimes rarely reaches its threshold. And as long
-as nothing is flushed, the feed pointer doesn't advance. Without a brake that means: no intermediate progress, and
+A feed that filters heavily (`accepts`) sometimes rarely reaches its threshold. And as long as nothing is
+committed, the feed pointer doesn't advance. Without a brake that means: no intermediate progress, and
 after a crash an unbounded number of pages must be fetched again — in the pathological case the run never reaches
-the head and therefore never flushes.
+the head and never commits.
 
-That is why the framework forces a flush as soon as `max-unflushed-pages` pages have been read without one
-(default 10), even if the batch isn't full. Better to process half a batch than to keep an unbounded window. The
-number of pages is the right measure: memory is already bounded by the batch itself (which keeps only one entry
-per key), but the *re-read cost* after a crash is not.
+That is why, once `max-uncommitted-pages` pages have been read without a commit (default 10), the framework asks
+the processing to wrap up on every page boundary, even if the batch isn't full. Better to process half a batch
+than to keep an unbounded window. The number of pages is the right measure: memory is already bounded by the
+batch itself, but the *re-read cost* after a crash is not.
 
-With an `EntryFeedHandler` (batch of 1) every entry is flushed, so this safety net never triggers there.
+With an `EntryFeedHandler` (commit per entry) this safety net never triggers.
 
 ## Observability: the `FeedEventListener`
 
@@ -156,22 +160,22 @@ its simplest consumer.
 | `runStarted(feedId, startPosition)` | A run begins, from this pointer. |
 | `pageFetched(feedId, pageMetadata, entryCount)` | A page was fetched from the source. |
 | `feedNotModified(feedId)` | The source returned `304 Not Modified` — nothing new since the previous poll. |
-| `entriesProcessed(feedId, entries)` | Entries were offered to the handler **and committed**: after `accepts`, after dedup. The counter for metrics. |
-| `feedPointerAdvanced(feedId, feedPointer, sincePreviousCommit)` | The feed pointer was committed — the recovery point after a crash. `sincePreviousCommit` carries the counters of what was added since the previous commit. |
+| `feedPointerAdvanced(feedId, feedPointer, sincePreviousCommit, latestEventUpdated)` | The feed pointer was committed — the recovery point after a crash. `sincePreviousCommit` carries the counters of what was added since the previous commit; `latestEventUpdated` the `updated` of the youngest entry the commit covered (the freshness signal). |
 | `pageProcessed(feedId, pageMetadata)` | A page was traversed (not necessarily committed: a batch may run across page boundaries). |
 | `endOfFeedReached(feedId)` | The head was reached. |
 | `runInterrupted(feedId, result)` / `runCompleted(feedId, result)` | The run stopped, cleanly interrupted or normally. |
 | `runFailed(failure)` | The run failed; `FeedRunFailure` carries the backoff counter, the deadline and (where applicable) the entry context. |
 
 **The contract:** the callbacks run on the feed thread, always **after** the commit point they belong to — never
-inside an open transaction. What `entriesProcessed` and `feedPointerAdvanced` show you is therefore exactly what a
+inside an open transaction. What `feedPointerAdvanced` shows you is therefore exactly what a
 crash at that moment would leave behind; work that was rolled back is never reported. A listener that throws does
 not break the run (the failure is logged at WARN and ignored) — but keep implementations light and non-blocking.
 
 `FeedRunResult` deliberately carries **three** counters: `read`, `accepted` and `processed`. On a filtering,
 deduplicating feed they diverge widely (e.g. 10,000 → 800 → 120), and that difference is precisely what you want
-to see. You get them twice: per commit as a delta (`feedPointerAdvanced`) and at the end of the run as a total
-(`runCompleted`/`runInterrupted`).
+to see. `read` and `accepted` count feed entries; `processed` is the handler's own measure of realised work
+(default: entries — see `ProcessResult`). You get them twice: per commit as a delta (`feedPointerAdvanced`) and
+at the end of the run as a total (`runCompleted`/`runInterrupted`).
 
 ### Metrics (Micrometer)
 
@@ -183,7 +187,7 @@ registry; disable it with `atomium.metrics.enabled=false`. All series are tagged
 | Metric (prometheus name) | Type | Meaning |
 | --- | --- | --- |
 | `atomium_runs_total{feed,outcome}` | counter | runs, per `outcome` (`completed`/`interrupted`/`failed`) |
-| `atomium_entries_read_total{feed}` / `_accepted_` / `_processed_` | counter | the three counters, summed per commit (so they advance even in the middle of a long run) |
+| `atomium_entries_read_total{feed}` / `_accepted_` / `_processed_` | counter | the three counters, summed per commit (so they advance even in the middle of a long run); `processed` carries the handler's own measure of realised work (default: entries) |
 | `atomium_entries_last_commit_time_seconds{feed}` | gauge | timestamp of the last commit (is the feed still alive?) |
 | `atomium_entries_last_event_time_seconds{feed}` | gauge | `updated` of the most recent processed event (how fresh is the data?) |
 | `atomium_pages_fetched_total{feed}` | counter | fetched HTTP pages |
@@ -243,8 +247,8 @@ Per feed under `atomium.feeds.<feedId>` (map key = `getFeedId()`):
 | `query-interval` | `1m` | Poll frequency: the wait between the end of a successful run and the start of the next. |
 | `initial-feed-pointer.type` | — | Start position of a **new** feed: `oldest` (full history), `now` (only new events), or `pointer` (+ `page-link`). Only used as long as no pointer has been persisted yet. |
 | `backoff.initial-interval` / `.max-interval` / `.multiplier` | `1m` / `1h` / `2` | Exponential backoff on consecutive failed runs. |
-| `batch.preferred-batch-size` | `100` | Only with a **`BatchedFeedHandler`**: the number of *distinct* keys at which a batch is complete. Set this on a feed with an `EntryFeedHandler` and startup fails (it processes per entry — the threshold there is always 1). |
-| `batch.max-unflushed-pages` | `10` | The **safety net**: force a flush once this many pages have been read without one, even if the batch isn't full. See [The safety net](#the-safety-net-batchmax-unflushed-pages) above. |
+| `processing.preferred-size` | `100` | Only with a **`SimpleBatchedProcessingFeedHandler`**: the number of accepted entries at which a batch is processed. Set this on a feed with an `EntryFeedHandler` and startup fails (it processes per entry — the threshold there is always 1). |
+| `processing.max-uncommitted-pages` | `10` | The **safety net**: once this many pages have been read without a commit, every boundary asks the processing to wrap up, even if the batch isn't full. See [The safety net](#the-safety-net-processingmax-uncommitted-pages) above. |
 
 The HTTP client config (auth, timeouts, …) is environment-specific and doesn't belong here but in your
 `FeedRestClientBuilders`; unknown sub-properties under a feed are ignored during binding.

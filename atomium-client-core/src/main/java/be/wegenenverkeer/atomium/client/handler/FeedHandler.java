@@ -1,15 +1,13 @@
 package be.wegenenverkeer.atomium.client.handler;
 
-import be.wegenenverkeer.atomium.client.protocol.AtomiumEntry;
-import be.wegenenverkeer.atomium.client.protocol.FeedPageMetadata;
-
 /**
  * The base SPI for consuming an Atomium feed. Do not implement this interface directly, but one of its
  * concrete variants; the framework sets up a feed consumer per handler:
  * <ul>
  *   <li>{@link EntryFeedHandler} — the common case: process the entries one by one.</li>
- *   <li>{@link BatchedFeedHandler} — the exceptional case: process them per (deduplicated) batch, for a feed
- *       that produces events in bursts faster than you can process them one by one.</li>
+ *   <li>{@link SimpleBatchedProcessingFeedHandler} — process them per batch, in two phases (prepare outside
+ *       the transaction, persist inside it), for a feed that produces events in bursts or processing that
+ *       involves remote lookups.</li>
  * </ul>
  *
  * <p>Only {@link #getFeedId()} (plus the entry callback of the chosen variant) is mandatory; everything else has a
@@ -17,8 +15,8 @@ import be.wegenenverkeer.atomium.client.protocol.FeedPageMetadata;
  * does not claim the user's only superclass. The handler is <em>pure domain</em> (identity + callbacks):
  * infrastructure config (HTTP client, decoder, executor, …) lives in the {@link Feed}, not here.
  *
- * <p>The handler is <em>stateless</em>: the framework (the internal feed handler controller) owns any buffer
- * and offers everything the callback needs as a parameter. To observe the <em>lifecycle</em> of a run
+ * <p>The handler is <em>stateless</em>: the framework owns any buffer and intermediate state, and offers
+ * everything the callback needs as a parameter. To observe the <em>lifecycle</em> of a run
  * (start, page boundary, end of feed, interruption) implements a {@link FeedEventListener} — there those events
  * are no longer the handler's concern.
  *
@@ -39,21 +37,6 @@ public interface FeedHandler<C> {
     String getFeedId();
 
     /**
-     * Is this entry relevant to this handler? {@code false} → the framework ignores it entirely (no
-     * entry callback, not in a batch) and simply advances the feed pointer over it.
-     *
-     * <p>Intended for feeds that carry many events this consumer has nothing to do with. Filtering them out saves
-     * more than processing work: with a {@link BatchedFeedHandler} it also keeps the batch small, because a
-     * filtered-out entry does not count towards the threshold.
-     *
-     * <p>Operates on the <em>decoded</em> content (the decode happens per entry anyway). Default: everything is
-     * relevant.
-     */
-    default boolean accepts(FeedPageMetadata pageMetadata, AtomiumEntry entry, C content) {
-        return true;
-    }
-
-    /**
      * Process a content item <em>as if</em> it appeared as an entry on the feed (e.g. to correct a failure of the
      * source application via the admin endpoint without that application having to release a fix).
      *
@@ -66,7 +49,7 @@ public interface FeedHandler<C> {
      *
      * <p><b>Threading:</b> a push runs on the calling (admin request) thread, <em>not</em> on the feed thread,
      * and can therefore coincide with a running run of the same handler. Since the handler is supposed to be stateless
-     * anyway, that is not a problem — but do not count on push and {@code onEntry}/{@code onBatch} never running
+     * anyway, that is not a problem — but do not count on push and the regular processing callbacks never running
      * concurrently.
      */
     default void pushEntry(C content) {

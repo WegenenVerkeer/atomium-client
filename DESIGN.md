@@ -33,12 +33,11 @@ Framework-independent Java library for consuming an Atomium feed: a low-level **
 
 ### The handler API — what the developer implements (SPI) (`client.handler`)
 
-- **FeedHandler** — the base: only `getFeedId()` (+ opt-in `accepts()` to filter, `pushEntry()` for a push). Implement one of the two variants:
+- **FeedHandler** — the base: only `getFeedId()` (+ opt-in `pushEntry()` for a push). Implement one of the two variants (each with an opt-in `accepts()` to filter):
 - **EntryFeedHandler** — processes the entries **one by one** (`onEntry`); the typical case.
-- **BatchedFeedHandler** — processes them **per (deduplicated) batch** (`onBatch`); for feeds that deliver bursts faster than you can handle per entry.
-- **FeedHandlerBatch** — the accumulator of one batch; decides for itself via `isComplete()` when it is done (the extension point).
-- **DefaultFeedHandlerBatch** — ready-made batch: dedup on a key (last-wins), complete on the number of distinct keys.
-- **BatchEntry** — one buffered entry: `FeedPageMetadata` + `AtomiumEntry` + decoded content.
+- **SimpleBatchedProcessingFeedHandler** — processes them **per batch, in two phases**: `process` (outside the transaction: collect, dedupe, look up) and `persist` (inside it, atomically with the feed pointer); for burst feeds and processing with remote lookups.
+- **ProcessingEntry** — one offered entry: `FeedPageMetadata` + `AtomiumEntry` + decoded content.
+- **ProcessResult** — the result of `process`: the prepared intermediate state `P` + optionally the processed count (default: the number of offered entries).
 - **FeedEventListener** — observability SPI: the single point where the processing reports its events (payloads: `FeedRunResult`, `FeedRunFailure`).
 
 ### The handler API — definition & assembly
@@ -54,13 +53,13 @@ Framework-independent Java library for consuming an Atomium feed: a low-level **
 
 ### The handler API — the run pipeline (framework, internal)
 
-> scheduler → `FeedRunner` → `FeedConsumer` → `FeedHandlerController` → your `FeedHandler`
+> scheduler → `FeedRunner` → `FeedConsumer` → `FeedProcessor` → your `FeedHandler`
 
 - **FeedRunner** — the lifecycle of one feed: active/inactive, start/interrupt, the timing of the next run (`queryInterval` on success, backoff after failures), emits `runFailed`; triggered frequently by a scheduler.
 - **SimpleFeedScheduler** — bundled minimal scheduler (own daemon thread): one frequent tick (default every second) to `tryToStart()` of every feed; for apps without a framework scheduler (Spring Boot apps get the `FeedScheduler` from `-spring-boot-4`).
-- **FeedConsumer** / **FeedConsumerImpl** — reads the feed from the `FeedPointer` up to the head; manages the transactions + pointer commits and emits all other events.
-- **FeedHandlerController** — owns the buffer/batch, applies `accepts`, and tells the consumer via a `Code` when flushing and committing is allowed.
-- **BatchedFeedHandlerController** — the only controller impl; an `EntryFeedHandler` also runs through here via the **EntryFeedHandlerAdapter** (a batch of 1).
+- **FeedConsumer** / **FeedConsumerImpl** — reads the feed from the `FeedPointer` up to the head; manages the transactions + pointer commits (incl. the safety net) and emits all other events.
+- **FeedProcessor** — the internal processing seam: one fresh processor per run receives the entries and answers checkpoint opportunities (`PAGE_BOUNDARY`/`WINDOW_EXHAUSTED`/`END_OF_FEED`/`INTERRUPTED`) with idle/buffering/ready.
+- **EntryFeedProcessor** / **SimpleBatchedFeedProcessor** — the two processor impls: per entry ready (commit per entry), and the two-phase batch buffer.
 - **FeedBackoffPolicy** / **ExponentialFeedBackoffPolicy** — how long the runner waits after consecutive failures.
 - **PerFeedThreadExecutors** — provides each feed its own daemon-thread executor (with clean shutdown).
 
@@ -97,7 +96,7 @@ feed (`DemoFeedEndpoint`); Spring Boot is only application setup there.
 
 - **FetchDemoEndpoint** — the fetch API in its pure form: reads the complete feed from oldest page to head on every request.
 - **SimpleFeedHandler** / **SimpleDemoConfiguration** — the minimal handler assembly: the builder parameters, a start position and the poll settings; the building blocks are the defaults.
-- **SimpleBatchedFeedHandler** / **SimpleBatchedDemoConfiguration** — the batched variant: a `BatchedFeedHandler` with the bundled `DefaultFeedHandlerBatch`.
+- **SimpleBatchedFeedHandler** / **SimpleBatchedDemoConfiguration** — the batched variant: a `SimpleBatchedProcessingFeedHandler` showing the two phases.
 - **FullMontyFeedHandler** / **FullMontyDemoConfiguration** — the full assembly: every building block explicit, with a real JDBC `FeedPointerRepository` (**DemoJdbcFeedPointerRepository**, H2) and real `FeedTransactions` (**SpringTransactionFeedTransactions**), plus a custom content DTO (`MontyContent`).
 - **DemoControlEndpoint** — status / activate / deactivate / push (`/rest/demo/feeds`), on top of the `Feeds` registry and the `SimpleFeedScheduler`.
 
@@ -108,5 +107,5 @@ feed (`DemoFeedEndpoint`); Spring Boot is only application setup there.
 Standalone Spring Boot app that demonstrates the lib against an in-memory source feed (`DemoFeedEndpoint`).
 
 - **SimpleFeedHandler** — the minimal integration: an `EntryFeedHandler` on a raw `JsonNode`.
-- **SimpleBatchedFeedHandler** — the batched variant: a `BatchedFeedHandler` with the bundled `DefaultFeedHandlerBatch`.
+- **SimpleBatchedFeedHandler** — the batched variant: a `SimpleBatchedProcessingFeedHandler` showing the two phases.
 - **FullMontyFeedHandler** — shows the extras: an `EntryFeedHandler` with a custom content DTO (`MontyContent`).

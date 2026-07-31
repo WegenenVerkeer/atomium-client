@@ -26,7 +26,7 @@ import java.time.OffsetDateTime;
  * Because the {@code simple} feed polls the same in-memory demo feed and makes it grow with every poll, a
  * <b>backlog</b> is already waiting when you activate, and it gets processed immediately.
  *
- * <p>For batch processing (a {@code BatchedFeedHandler}) there is the separate {@code simple-batched} demo.
+ * <p>For batch processing (a {@code SimpleBatchedProcessingFeedHandler}) there is the separate {@code simple-batched} demo.
  */
 @Component
 public class FullMontyFeedHandler implements EntryFeedHandler<MontyContent> {

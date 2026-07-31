@@ -1,26 +1,28 @@
 package be.wegenenverkeer.atomium.client.springboot.demo.simplebatched;
 
-import be.wegenenverkeer.atomium.client.handler.BatchEntry;
-import be.wegenenverkeer.atomium.client.handler.BatchedFeedHandler;
-import be.wegenenverkeer.atomium.client.handler.DefaultFeedHandlerBatch;
-import be.wegenenverkeer.atomium.client.handler.FeedHandlerBatch;
+import be.wegenenverkeer.atomium.client.handler.ProcessResult;
+import be.wegenenverkeer.atomium.client.handler.ProcessingEntry;
+import be.wegenenverkeer.atomium.client.handler.SimpleBatchedProcessingFeedHandler;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 import tools.jackson.databind.JsonNode;
 
+import java.util.List;
+
 /**
- * The simplest possible batch demo ({@code simple-batched}): a {@link BatchedFeedHandler} on a raw
- * {@code JsonNode}, with the bundled {@link DefaultFeedHandlerBatch} — for a feed that delivers events in bursts
- * faster than you want to commit them one by one. The batch and the feed pointer are committed together in one
- * transaction; the batch size comes from the config ({@code atomium.feeds.simple-batched.batch.preferred-batch-size}).
+ * The simplest possible batch demo ({@code simple-batched}): a {@link SimpleBatchedProcessingFeedHandler} on a
+ * raw {@code JsonNode}, showing the two phases — {@code process} prepares the batch outside the transaction (in
+ * a real app: collect ids and look them up remotely), {@code persist} writes the prepared result inside the
+ * transaction that also advances the feed pointer. The batch size comes from the config
+ * ({@code atomium.feeds.simple-batched.processing.preferred-size}).
  *
  * <p>In {@code application.yml} it is deliberately <em>inactive</em>: activate it during the demo (admin
  * endpoint) — because the {@code simple} feed has meanwhile made the same demo feed grow, a backlog is already
  * waiting, which you then immediately see being processed in batches in the logs.
  */
 @Component
-public class SimpleBatchedFeedHandler implements BatchedFeedHandler<JsonNode> {
+public class SimpleBatchedFeedHandler implements SimpleBatchedProcessingFeedHandler<JsonNode, List<String>> {
 
     private static final Logger LOG = LoggerFactory.getLogger(SimpleBatchedFeedHandler.class);
 
@@ -29,22 +31,20 @@ public class SimpleBatchedFeedHandler implements BatchedFeedHandler<JsonNode> {
         return "simple-batched";
     }
 
-    /**
-     * The dedup key is a domain concern and therefore belongs here in code: in a real app the entity id, so that for a burst
-     * on the same entity only the last state gets processed. The demo feed delivers nothing but unique events, so
-     * effectively nothing dedups here.
-     */
+    /** Phase 1, outside the transaction: prepare the batch (in a real app: collect, dedupe, look up remotely). */
     @Override
-    public FeedHandlerBatch<JsonNode> startBatch(int preferredBatchSize) {
-        return new DefaultFeedHandlerBatch<>(preferredBatchSize, content -> content.get("aField"));
+    public ProcessResult<List<String>> process(List<ProcessingEntry<JsonNode>> entries) {
+        LOG.info("processing a batch of {} event(s)", entries.size());
+        List<String> prepared = entries.stream()
+                .map(entry -> "id=%s updated=%s content=%s"
+                        .formatted(entry.entry().id(), entry.entry().updated(), entry.content()))
+                .toList();
+        return ProcessResult.of(prepared);
     }
 
+    /** Phase 2, inside the transaction (together with the feed pointer): persist the prepared effect. */
     @Override
-    public void onBatch(FeedHandlerBatch<JsonNode> batch) {
-        LOG.info("batch of {} event(s):", batch.getBuffer().size());
-        for (BatchEntry<JsonNode> batchEntry : batch.getBuffer()) {
-            LOG.info("  - id={} updated={} content={}",
-                    batchEntry.entry().id(), batchEntry.entry().updated(), batchEntry.content());
-        }
+    public void persist(List<String> prepared) {
+        prepared.forEach(line -> LOG.info("  - {}", line));
     }
 }

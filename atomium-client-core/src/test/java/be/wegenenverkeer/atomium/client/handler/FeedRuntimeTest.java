@@ -4,31 +4,34 @@ import be.wegenenverkeer.atomium.client.protocol.AtomiumEntry;
 import be.wegenenverkeer.atomium.client.protocol.FeedPageMetadata;
 import org.junit.jupiter.api.Test;
 
+import java.util.List;
+
 import static org.assertj.core.api.Assertions.assertThatIllegalStateException;
 import static org.assertj.core.api.Assertions.assertThatNoException;
 
 /**
- * The batch threshold is resolved per handler type (see {@link FeedRuntime#controllerFor}).
+ * The processing threshold is resolved per handler type (see {@link FeedRuntime#processorFor}).
  */
 class FeedRuntimeTest {
 
     /**
-     * A {@code preferredBatchSize} on a feed with an {@link EntryFeedHandler} is a configuration mistake — it processes
-     * per entry, so the threshold is always 1. We reject it fail-fast during assembly instead of silently ignoring it.
+     * A {@code preferredProcessingSize} on a feed with an {@link EntryFeedHandler} is a configuration mistake — it
+     * processes per entry, so the threshold is always 1. We reject it fail-fast during assembly instead of silently
+     * ignoring it.
      */
     @Test
-    void aPreferredBatchSizeOnAnEntryFeedHandlerFailsFast() {
+    void aPreferredProcessingSizeOnAnEntryFeedHandlerFailsFast() {
         assertThatIllegalStateException()
-                .isThrownBy(() -> FeedRuntime.controllerFor("feed", handler("feed"), 50, 10))
-                .withMessageContaining("preferredBatchSize")
+                .isThrownBy(() -> FeedRuntime.processorFor("feed", handler("feed"), 50))
+                .withMessageContaining("preferredProcessingSize")
                 .withMessageContaining("EntryFeedHandler");
     }
 
-    /** A {@link BatchedFeedHandler} without an explicit threshold gets the framework default (100). */
+    /** A {@link SimpleBatchedProcessingFeedHandler} without an explicit threshold gets the framework default (100). */
     @Test
-    void aBatchedFeedHandlerWithoutConfigGetsTheDefaultThreshold() {
-        assertThatNoException().isThrownBy(() -> FeedRuntime.controllerFor(
-                "feed", batchHandler("feed"), null, 10));
+    void aBatchedHandlerWithoutConfigGetsTheDefaultThreshold() {
+        assertThatNoException().isThrownBy(() -> FeedRuntime.processorFor(
+                "feed", batchHandler("feed"), null));
     }
 
     /** A {@link FeedHandler} without either of the two variants has no entry callback → fail-fast. */
@@ -37,19 +40,24 @@ class FeedRuntimeTest {
         FeedHandler<String> bare = () -> "feed";
 
         assertThatIllegalStateException()
-                .isThrownBy(() -> FeedRuntime.controllerFor("feed", bare, null, 10))
+                .isThrownBy(() -> FeedRuntime.processorFor("feed", bare, null))
                 .withMessageContaining("entry callback");
     }
 
-    private static BatchedFeedHandler<String> batchHandler(String feedId) {
-        return new BatchedFeedHandler<>() {
+    private static SimpleBatchedProcessingFeedHandler<String, Integer> batchHandler(String feedId) {
+        return new SimpleBatchedProcessingFeedHandler<>() {
             @Override
             public String getFeedId() {
                 return feedId;
             }
 
             @Override
-            public void onBatch(FeedHandlerBatch<String> batch) {
+            public ProcessResult<Integer> process(List<ProcessingEntry<String>> entries) {
+                return ProcessResult.of(entries.size());
+            }
+
+            @Override
+            public void persist(Integer prepared) {
             }
         };
     }

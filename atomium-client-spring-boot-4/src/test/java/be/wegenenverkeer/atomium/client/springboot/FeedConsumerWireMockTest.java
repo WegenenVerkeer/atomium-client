@@ -2,7 +2,6 @@ package be.wegenenverkeer.atomium.client.springboot;
 
 import be.wegenenverkeer.atomium.client.handler.FeedEventListener;
 import be.wegenenverkeer.atomium.client.handler.FeedHandler;
-import be.wegenenverkeer.atomium.client.handler.FeedHandlerBatch;
 import be.wegenenverkeer.atomium.client.handler.FeedRunner;
 import be.wegenenverkeer.atomium.client.handler.InterruptingFeedEventListener;
 import be.wegenenverkeer.atomium.client.handler.RecordingFeedEventListener;
@@ -244,18 +243,18 @@ class FeedConsumerWireMockTest extends AbstractAtomiumFeedIT {
             assertThat(eventListener.events()).containsExactly(
                     "runStarted",
                     "pageFetched(/0, 3)",
-                    "entriesProcessed(id-001)", "feedPointerAdvanced(lastEvent=/0#id-001 nextFetch=/0?after=id-001)",
-                    "entriesProcessed(id-002)", "feedPointerAdvanced(lastEvent=/0#id-002 nextFetch=/0?after=id-002)",
-                    "entriesProcessed(id-003)", "feedPointerAdvanced(lastEvent=/0#id-003 nextFetch=/1)",
+                    "feedPointerAdvanced(lastEvent=/0#id-001 nextFetch=/0?after=id-001)",
+                    "feedPointerAdvanced(lastEvent=/0#id-002 nextFetch=/0?after=id-002)",
+                    "feedPointerAdvanced(lastEvent=/0#id-003 nextFetch=/1)",
                     "pageProcessed(/0)",
                     "pageFetched(/1, 3)",
-                    "entriesProcessed(id-004)", "feedPointerAdvanced(lastEvent=/1#id-004 nextFetch=/1?after=id-004)",
-                    "entriesProcessed(id-005)", "feedPointerAdvanced(lastEvent=/1#id-005 nextFetch=/1?after=id-005)",
-                    "entriesProcessed(id-006)", "feedPointerAdvanced(lastEvent=/1#id-006 nextFetch=/2)",
+                    "feedPointerAdvanced(lastEvent=/1#id-004 nextFetch=/1?after=id-004)",
+                    "feedPointerAdvanced(lastEvent=/1#id-005 nextFetch=/1?after=id-005)",
+                    "feedPointerAdvanced(lastEvent=/1#id-006 nextFetch=/2)",
                     "pageProcessed(/1)",
                     "pageFetched(/2, 2)",
-                    "entriesProcessed(id-007)", "feedPointerAdvanced(lastEvent=/2#id-007 nextFetch=/2?after=id-007)",
-                    "entriesProcessed(id-008)", "feedPointerAdvanced(lastEvent=/2#id-008 nextFetch=/2?after=id-008)",
+                    "feedPointerAdvanced(lastEvent=/2#id-007 nextFetch=/2?after=id-007)",
+                    "feedPointerAdvanced(lastEvent=/2#id-008 nextFetch=/2?after=id-008)",
                     "pageProcessed(/2)",
                     "endOfFeedReached",
                     "runCompleted(read=8, accepted=8, processed=8)");
@@ -297,53 +296,53 @@ class FeedConsumerWireMockTest extends AbstractAtomiumFeedIT {
     }
 
     /**
-     * The {@link be.wegenenverkeer.atomium.client.handler.BatchedFeedHandler} variant: entries are buffered in a {@link FeedHandlerBatch}, deduplicated,
-     * and only processed in one go at the threshold (or at the end of the feed) — together with the feed pointer, in
-     * one transaction.
+     * The {@link be.wegenenverkeer.atomium.client.handler.SimpleBatchedProcessingFeedHandler} tier: accepted
+     * entries are buffered up to the processing threshold and then processed in two phases — {@code process}
+     * outside any transaction, {@code persist} inside the transaction that also advances the feed pointer.
      *
-     * <p>The batch feed ({@code foo-app-batch}) deliberately carries duplicates. Page {@code /0}, in read order:
-     * id-001=alfa, id-002=beta, id-003=alfa, id-004=gamma, id-005=beta, id-006=alfa; the head {@code /1}: id-007=delta.
-     * Deduplication is on {@code aField}, with threshold 3 from the config.
+     * <p>The batch feed ({@code foo-app-batch}) deliberately carries recurring entities. Page {@code /0}, in read
+     * order: id-001=alfa, id-002=beta, id-003=alfa, id-004=gamma, id-005=beta, id-006=alfa; the head {@code /1}:
+     * id-007=delta. The handler deduplicates on {@code aField} in {@code process}; threshold 3 from the config.
      */
     @Nested
-    class BatchedFeedHandler {
+    class BatchTier {
 
         /**
-         * With threshold 3 (three <em>distinct</em> values) the first batch flushes at id-004: alfa has been seen
-         * three times by then but counts once, and the <em>last</em> alfa entry survives (id-003, not id-001). The
-         * order is that of first appearance (alfa, beta, gamma).
+         * Threshold 3: the framework offers every third accepted entry as a batch to {@code process}; the
+         * handler's own dedup (last-wins per {@code aField}, first-seen order) shrinks what {@code persist}
+         * receives. Each {@code persist} line echoes the prepared state its {@code process} returned — {@code P}
+         * travels intact through the whole Boot stack.
          */
         @Test
-        void flushesAtTheThresholdAndDeduplicatesLastWins() {
+        void processesAtTheThresholdAndTheHandlersDedupShrinksTheBatch() {
             stubBatchFeed();
 
             consume(batchHandler.getFeedId());
 
             assertThat(batchHandler.invocations()).containsExactly(
-                    "onBatch(id-003=alfa, id-002=beta, id-004=gamma)",
-                    "onBatch(id-005=beta, id-006=alfa, id-007=delta)");
+                    "process(id-001=alfa, id-002=beta, id-003=alfa)",
+                    "persist(id-003=alfa, id-002=beta)",
+                    "process(id-004=gamma, id-005=beta, id-006=alfa)",
+                    "persist(id-004=gamma, id-005=beta, id-006=alfa)",
+                    "process(id-007=delta)",
+                    "persist(id-007=delta)");
         }
 
         /**
-         * The core of the model: as long as the batch is not flushed, there is <em>no</em> commit — not even on a
-         * page boundary. So there are exactly two commits, each up to and including the entry that triggered the flush.
-         * A crash then repeats the entire uncommitted batch, which is the intent.
+         * The core of the model: a commit happens only when a batch wraps up — mid-page at the entry pointer, at
+         * the last entry of a page at the page pointer, and for the leftover partial batch at the end of the
+         * feed. In between, the pointer stays pinned, so a crash repeats the uncommitted batch.
          */
         @Test
-        void pinsThePointerWhileTheBatchIsNotFlushed() {
+        void commitsOnlyWhenABatchWrapsUp() {
             stubBatchFeed();
 
             consume(batchHandler.getFeedId());
 
             assertThat(eventListener.pointerCommits()).containsExactly(
-                    "lastEvent=/0#id-004 nextFetch=/0?after=id-004",
+                    "lastEvent=/0#id-003 nextFetch=/0?after=id-003",
+                    "lastEvent=/0#id-006 nextFetch=/1",
                     "lastEvent=/1#id-007 nextFetch=/1?after=id-007");
-
-            // and the batch really spans the page boundary: no commit between pageProcessed(/0) and the second flush
-            assertThat(eventListener.events()).containsSequence(
-                    "pageProcessed(/0)",
-                    "pageFetched(/1, 1)",
-                    "entriesProcessed(id-005, id-006, id-007)");
         }
 
         /** The three counters diverge as soon as deduplication kicks in: 7 read, 7 accepted, 6 processed. */
@@ -369,7 +368,6 @@ class FeedConsumerWireMockTest extends AbstractAtomiumFeedIT {
             consume(batchHandler.getFeedId());
 
             assertThat(batchHandler.invocations()).isEmpty();
-            assertThat(eventListener.events()).doesNotContain("entriesProcessed()");
             // only checkpoints on the page boundaries — deliberately none in the middle of a page
             assertThat(eventListener.pointerCommits()).containsExactly(
                     "lastEvent=/0#id-006 nextFetch=/1",
@@ -378,51 +376,55 @@ class FeedConsumerWireMockTest extends AbstractAtomiumFeedIT {
         }
 
         /**
-         * Filtering and deduplication combined: only the alfa events count (3 of 7), and of those one survives
-         * (id-006). So the threshold of 3 is never reached — but at the end of the feed the incomplete batch is
-         * flushed anyway. A batch does not survive polls.
+         * Filtering and the handler's dedup combined: only the beta events count (2 of 7), so the threshold of 3
+         * is never reached — but at the end of the feed the partial batch is wrapped up anyway (a batch does not
+         * survive polls), and the dedup leaves one processed entry.
          */
         @Test
-        void anIncompleteBatchIsStillFlushedAtTheEndOfTheFeed() {
+        void aPartialBatchIsStillWrappedUpAtTheEndOfTheFeed() {
             stubBatchFeed();
-            batchHandler.acceptOnly(content -> "alfa".equals(content.aField()));
+            batchHandler.acceptOnly(content -> "beta".equals(content.aField()));
 
             consume(batchHandler.getFeedId());
 
-            assertThat(batchHandler.invocations()).containsExactly("onBatch(id-006=alfa)");
+            assertThat(batchHandler.invocations()).containsExactly(
+                    "process(id-002=beta, id-005=beta)",
+                    "persist(id-005=beta)");
             // one single commit, at the very end: until then the pointer stayed at the start position
             assertThat(eventListener.pointerCommits()).containsExactly(
                     "lastEvent=/1#id-007 nextFetch=/1?after=id-007");
             assertThat(eventListener.events()).endsWith(
-                    "entriesProcessed(id-006)",
                     "feedPointerAdvanced(lastEvent=/1#id-007 nextFetch=/1?after=id-007)",
+                    "pageProcessed(/1)",
                     "endOfFeedReached",
-                    "runCompleted(read=7, accepted=3, processed=1)");
+                    "runCompleted(read=7, accepted=2, processed=1)");
         }
     }
 
     /**
-     * The <b>page safety net</b> ({@code batch.max-unflushed-pages}). A heavily filtering or deduplicating feed
-     * rarely reaches its threshold — and as long as there is no flush, the feed pointer does not advance. Without a
+     * The <b>page safety net</b> ({@code processing.max-uncommitted-pages}). A heavily filtering feed
+     * rarely reaches its threshold — and as long as nothing is committed, the feed pointer does not advance. Without a
      * safety net the window a crash has to re-read thus grows without bound.
      *
      * <p>The feed {@code foo-app-batch-cap} isolates exactly that: threshold 100 (never reached) and
-     * {@code max-unflushed-pages: 2}, across three pages (id-001..id-005, all distinct).
+     * {@code max-uncommitted-pages: 2}, across three pages (id-001..id-005, all distinct).
      */
     @Nested
     class SafetyNet {
 
         @Test
-        void forcesAFlushAfterMaxUnflushedPages() {
+        void forcesAWrapUpAfterMaxUncommittedPages() {
             stubBatchCapFeed();
 
             consume(batchCapHandler.getFeedId());
 
-            // the first batch spans two pages and is flushed by the safety net (not by the threshold);
+            // the first batch spans two pages and is wrapped up by the safety net (not by the threshold);
             // the rest follows at the end of the feed
             assertThat(batchCapHandler.invocations()).containsExactly(
-                    "onBatch(id-001=a, id-002=b, id-003=c, id-004=d)",
-                    "onBatch(id-005=e)");
+                    "process(id-001=a, id-002=b, id-003=c, id-004=d)",
+                    "persist(id-001=a, id-002=b, id-003=c, id-004=d)",
+                    "process(id-005=e)",
+                    "persist(id-005=e)");
         }
 
         /** And so: the uncommitted window stays bounded to two pages. */
@@ -441,7 +443,7 @@ class FeedConsumerWireMockTest extends AbstractAtomiumFeedIT {
                     "pageFetched(/0, 2)",
                     "pageProcessed(/0)",
                     "pageFetched(/1, 2)",
-                    "entriesProcessed(id-001, id-002, id-003, id-004)");
+                    "feedPointerAdvanced(lastEvent=/1#id-004 nextFetch=/2)");
         }
     }
 
@@ -457,7 +459,7 @@ class FeedConsumerWireMockTest extends AbstractAtomiumFeedIT {
         @Test
         void inTheMiddleOfAPageStopsAfterTheLastCommittedEntry() {
             stubCompleteFeed();
-            interruptingListener.interruptAfter("entriesProcessed(id-002)", deactivate(handler.getFeedId()));
+            interruptingListener.interruptAfter("committed(id-002)", deactivate(handler.getFeedId()));
 
             consume(handler.getFeedId());
 
@@ -525,9 +527,70 @@ class FeedConsumerWireMockTest extends AbstractAtomiumFeedIT {
         }
 
         /**
-         * A handler that throws (phase HANDLER): the transaction around {@code flush()} + the pointer write rolls
-         * back, so the pointer stays at the previous entry and id-002 is delivered again on the next run. Also, no
-         * {@code entriesProcessed} is emitted — the events follow the commit, not the attempt.
+         * The batch tier, phase 1: a {@code process} that throws fails the run before any transaction opens.
+         * Nothing is committed, and the retry re-reads from the pinned pointer and offers the <em>same</em>
+         * batch again — the crash/retry contract of the two-phase model, end-to-end through the JDBC pointer.
+         */
+        @Test
+        void aFailingProcessPinsThePointerAndTheRetryReoffersTheSameBatch() {
+            stubBatchFeed();
+            batchHandler.failInProcess();
+
+            consume(batchHandler.getFeedId());
+
+            assertThat(batchHandler.invocations()).isEmpty();
+            assertThat(eventListener.pointerCommits()).isEmpty();
+            assertThat(eventListener.events()).endsWith("runFailed(1)");
+
+            // the source recovers → the retry starts over from the pinned pointer, with the identical batch
+            batchHandler.recover();
+
+            consume(batchHandler.getFeedId());
+
+            assertThat(batchHandler.invocations()).startsWith(
+                    "process(id-001=alfa, id-002=beta, id-003=alfa)",
+                    "persist(id-003=alfa, id-002=beta)");
+            assertThat(eventListener.events()).endsWith("runCompleted(read=7, accepted=7, processed=6)");
+        }
+
+        /**
+         * The batch tier, phase 2: a {@code persist} that throws rolls back the transaction it shares with the
+         * feed pointer write — the pointer in the database does not move, so the retry repeats {@code process}
+         * <em>and</em> {@code persist} for the same batch. Nothing is lost, nothing is skipped.
+         */
+        @Test
+        void aFailingPersistRollsBackAndTheRetryRepeatsTheBatch() {
+            stubBatchFeed();
+            batchHandler.failInPersist();
+
+            consume(batchHandler.getFeedId());
+
+            // process ran (outside the transaction), persist failed inside it → no commit at all
+            assertThat(batchHandler.invocations())
+                    .containsExactly("process(id-001=alfa, id-002=beta, id-003=alfa)");
+            assertThat(eventListener.pointerCommits()).isEmpty();
+            assertThat(eventListener.events()).endsWith("runFailed(1)");
+
+            batchHandler.reset();   // also recovers: reset clears the deliberate failure
+            eventListener.reset();
+
+            consume(batchHandler.getFeedId());
+
+            // the full feed again, from the start: the rollback left no trace of the failed attempt
+            assertThat(batchHandler.invocations()).containsExactly(
+                    "process(id-001=alfa, id-002=beta, id-003=alfa)",
+                    "persist(id-003=alfa, id-002=beta)",
+                    "process(id-004=gamma, id-005=beta, id-006=alfa)",
+                    "persist(id-004=gamma, id-005=beta, id-006=alfa)",
+                    "process(id-007=delta)",
+                    "persist(id-007=delta)");
+            assertThat(eventListener.events()).endsWith("runCompleted(read=7, accepted=7, processed=6)");
+        }
+
+        /**
+         * A handler that throws (phase HANDLER): the transaction around the handler effect + the pointer write
+         * rolls back, so the pointer stays at the previous entry and id-002 is delivered again on the next run.
+         * Also, no commit is reported — the events follow the commit, not the attempt.
          */
         @Test
         void aFailingHandlerRollsThePointerBack() {
@@ -543,7 +606,6 @@ class FeedConsumerWireMockTest extends AbstractAtomiumFeedIT {
                     .containsExactly(
                             "runStarted",
                             "pageFetched(/0, 3)",
-                            "entriesProcessed(id-001)",
                             "feedPointerAdvanced(lastEvent=/0#id-001 nextFetch=/0?after=id-001)",
                             "runFailed(1)");
         }

@@ -6,7 +6,6 @@ import org.jspecify.annotations.Nullable;
 import java.time.Clock;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.List;
 import java.util.function.Supplier;
 
@@ -47,11 +46,11 @@ public final class FeedRuntime {
         allListeners.add(progress);
         allListeners.addAll(feed.listeners());
         FeedEventListener listeners = new FeedEventListeners(allListeners);
-        Supplier<FeedHandlerController<T>> controllers =
-                controllerFor(feedId, feed.handler(), feed.preferredBatchSize(), feed.maxUnflushedPages());
-        FeedConsumerImpl<T> consumer = new FeedConsumerImpl<>(feedId, feed.handler(), controllers,
-                feed.atomiumClient(), feed.contentDecoder(), feed.pointerRepository(), feed.transactions(),
-                initialFeedPointer(feed), listeners);
+        Supplier<FeedProcessor<T>> processors =
+                processorFor(feedId, feed.handler(), feed.preferredProcessingSize());
+        FeedConsumerImpl<T> consumer = new FeedConsumerImpl<>(feedId, feed.handler(), processors,
+                feed.maxUncommittedPages(), feed.atomiumClient(), feed.contentDecoder(),
+                feed.pointerRepository(), feed.transactions(), initialFeedPointer(feed), listeners);
         FeedRunner runner = new FeedRunner(feedId, feed.queryInterval(), consumer, feed.executor(),
                 feed.activeOnStartup(), feed.backoffPolicy(), clock, listeners);
         // the consumer is also the EntryPusher (it owns the decoder + handler + transaction)
@@ -82,47 +81,40 @@ public final class FeedRuntime {
     }
 
     /**
-     * Picks, based on the handler type, the {@link FeedHandlerController} that offers the entries to the handler.
-     * There is only one: everything goes through the {@link BatchedFeedHandlerController}. An {@link EntryFeedHandler}
-     * is adapted to a batch of 1 for that purpose — "process per entry" is the special case of batching.
-     *
-     * <p>A {@link Supplier}, because the consumer takes a fresh controller per run (a half-filled batch must never
-     * linger between runs).
+     * Picks, based on the handler type, the {@link FeedProcessor} the consumer runs on. A {@link Supplier},
+     * because the consumer takes a fresh processor per run (a half-filled batch must never linger between
+     * runs).
      *
      * <p><b>Fail-fast at assembly</b> (twice): a {@link FeedHandler} that implements neither variant has no
-     * entry callback at all — that feed would silently do nothing. And a {@code preferredBatchSize} on a feed with an
-     * {@link EntryFeedHandler} is a configuration mistake (it processes per entry); we prefer refusing it over silently
-     * ignoring it.
+     * entry callback at all — that feed would silently do nothing. And a {@code preferredProcessingSize} on a
+     * feed with an {@link EntryFeedHandler} is a configuration mistake (it processes per entry); we prefer
+     * refusing it over silently ignoring it.
      */
-    static <T> Supplier<FeedHandlerController<T>> controllerFor(
-            String feedId, FeedHandler<T> handler, @Nullable Integer preferredBatchSize, int maxUnflushedPages) {
+    static <T> Supplier<FeedProcessor<T>> processorFor(
+            String feedId, FeedHandler<T> handler, @Nullable Integer preferredProcessingSize) {
 
-        int threshold;
-        BatchedFeedHandler<T> batchedHandler;
         switch (handler) {
-            case BatchedFeedHandler<T> batched -> {
-                batchedHandler = batched;
-                threshold = preferredBatchSize != null ? preferredBatchSize : FeedDefaults.PREFERRED_BATCH_SIZE;
+            case SimpleBatchedProcessingFeedHandler<T, ?> batched -> {
+                int size = preferredProcessingSize != null
+                        ? preferredProcessingSize : FeedDefaults.PREFERRED_PROCESSING_SIZE;
+                return () -> new SimpleBatchedFeedProcessor<>(batched, size);
             }
             case EntryFeedHandler<T> perEntry -> {
-                if (preferredBatchSize != null) {
+                if (preferredProcessingSize != null) {
                     // core assertion (framework-neutral); an assembly layer additionally validates this on its
                     // own configuration, in its own terminology — deliberately two checks, each with a different purpose
-                    throw new IllegalStateException(("feed '%s': a preferredBatchSize is set, but handler %s "
-                            + "is an EntryFeedHandler (processes per entry, batch size is always 1). Remove the "
-                            + "preferredBatchSize, or implement BatchedFeedHandler.")
+                    throw new IllegalStateException(("feed '%s': a preferredProcessingSize is set, but handler %s "
+                            + "is an EntryFeedHandler (processes per entry, the processing size is always 1). "
+                            + "Remove the preferredProcessingSize, or implement SimpleBatchedProcessingFeedHandler.")
                             .formatted(feedId, handler.getClass().getName()));
                 }
-                batchedHandler = new EntryFeedHandlerAdapter<>(feedId, perEntry);
-                threshold = 1;
+                return () -> new EntryFeedProcessor<>(feedId, perEntry);
             }
             default -> throw new IllegalStateException(
                     ("feed '%s': handler %s implements only FeedHandler itself and thus has no entry callback; "
-                            + "implement EntryFeedHandler or BatchedFeedHandler")
+                            + "implement EntryFeedHandler or SimpleBatchedProcessingFeedHandler")
                             .formatted(feedId, handler.getClass().getName()));
         }
-        int size = threshold;
-        return () -> new BatchedFeedHandlerController<>(batchedHandler, size, maxUnflushedPages);
     }
 
     /** The definition this runtime was assembled from. */
@@ -147,7 +139,10 @@ public final class FeedRuntime {
         return progress.lastCommit;
     }
 
-    /** The {@code updated} timestamp of the most recent processed event, or {@code null} while nothing has been processed. */
+    /**
+     * The {@code updated} timestamp of the youngest event a commit has advanced the pointer past, or
+     * {@code null} while no commit has covered an event.
+     */
     public @Nullable OffsetDateTime lastEvent() {
         return progress.lastEvent;
     }
@@ -167,16 +162,12 @@ public final class FeedRuntime {
         }
 
         @Override
-        public void feedPointerAdvanced(String feedId, FeedPointer feedPointer, FeedRunResult sincePreviousCommit) {
+        public void feedPointerAdvanced(String feedId, FeedPointer feedPointer, FeedRunResult sincePreviousCommit,
+                                        @Nullable OffsetDateTime latestEventUpdated) {
             lastCommit = OffsetDateTime.now(clock);
-        }
-
-        @Override
-        public void entriesProcessed(String feedId, List<? extends BatchEntry<?>> entries) {
-            entries.stream()
-                    .map(batchEntry -> batchEntry.entry().updated())
-                    .max(Comparator.naturalOrder())
-                    .ifPresent(mostRecent -> lastEvent = mostRecent);
+            if (latestEventUpdated != null) {
+                lastEvent = latestEventUpdated;
+            }
         }
     }
 }

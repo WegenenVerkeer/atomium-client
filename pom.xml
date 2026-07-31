@@ -68,6 +68,9 @@
         <spring.version>6.1.14</spring.version>         <!-- Spring Framework; minimum baseline (6.1) for atomium-client-restclient -->
         <junit.version>6.0.3</junit.version>
         <assertj.version>3.27.7</assertj.version>
+        <!-- slf4j binding for core tests that assert framework log output (deliberately NOT in
+             dependencyManagement: the Boot modules must keep Boot's own managed logback version) -->
+        <logback.version>1.5.18</logback.version>
 
         <!-- Spring Boot version for the atomium-client-spring-boot-4 modules -->
         <spring-boot.version>4.0.7</spring-boot.version>

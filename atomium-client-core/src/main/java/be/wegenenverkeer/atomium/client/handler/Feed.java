@@ -39,8 +39,8 @@ public final class Feed<T> {
     private final List<FeedEventListener> listeners;
     private final Duration queryInterval;
     private final boolean activeOnStartup;
-    private final @Nullable Integer preferredBatchSize;
-    private final int maxUnflushedPages;
+    private final @Nullable Integer preferredProcessingSize;
+    private final int maxUncommittedPages;
 
     private Feed(Builder<T> builder, Executor executor) {
         this.feedId = builder.feedId;
@@ -55,8 +55,8 @@ public final class Feed<T> {
         this.listeners = List.copyOf(builder.listeners);
         this.queryInterval = builder.queryInterval;
         this.activeOnStartup = builder.activeOnStartup;
-        this.preferredBatchSize = builder.preferredBatchSize;
-        this.maxUnflushedPages = builder.maxUnflushedPages;
+        this.preferredProcessingSize = builder.preferredProcessingSize;
+        this.maxUncommittedPages = builder.maxUncommittedPages;
     }
 
     public static <T> Builder<T> builder(String feedId, FeedHandler<T> handler, AtomiumClient atomiumClient,
@@ -113,13 +113,13 @@ public final class Feed<T> {
         return activeOnStartup;
     }
 
-    /** The number of distinct keys at which a batch is complete, or {@code null} for the default. */
-    public @Nullable Integer preferredBatchSize() {
-        return preferredBatchSize;
+    /** The number of accepted entries at which a batch is processed, or {@code null} for the default. */
+    public @Nullable Integer preferredProcessingSize() {
+        return preferredProcessingSize;
     }
 
-    public int maxUnflushedPages() {
-        return maxUnflushedPages;
+    public int maxUncommittedPages() {
+        return maxUncommittedPages;
     }
 
     /**
@@ -141,8 +141,8 @@ public final class Feed<T> {
         private final List<FeedEventListener> listeners = new ArrayList<>();
         private Duration queryInterval = Duration.ofMinutes(1);
         private boolean activeOnStartup = false;
-        private @Nullable Integer preferredBatchSize;
-        private int maxUnflushedPages = FeedDefaults.MAX_UNFLUSHED_PAGES;
+        private @Nullable Integer preferredProcessingSize;
+        private int maxUncommittedPages = FeedDefaults.MAX_UNCOMMITTED_PAGES;
 
         private Builder(String feedId, FeedHandler<T> handler, AtomiumClient atomiumClient,
                         FeedContentDecoder<T> contentDecoder) {
@@ -239,32 +239,32 @@ public final class Feed<T> {
         }
 
         /**
-         * The number of <em>distinct</em> keys at which a batch is complete. Only meaningful with a
-         * {@link BatchedFeedHandler} (default: {@value FeedDefaults#PREFERRED_BATCH_SIZE}); set on an
-         * {@link EntryFeedHandler}, assembly fails fast.
+         * The number of accepted entries at which a batch is processed. Only meaningful with a
+         * {@link SimpleBatchedProcessingFeedHandler} (default: {@value FeedDefaults#PREFERRED_PROCESSING_SIZE});
+         * set on an {@link EntryFeedHandler}, assembly fails fast.
          */
-        public Builder<T> preferredBatchSize(@Nullable Integer preferredBatchSize) {
-            if (preferredBatchSize != null && preferredBatchSize < 1) {
+        public Builder<T> preferredProcessingSize(@Nullable Integer preferredProcessingSize) {
+            if (preferredProcessingSize != null && preferredProcessingSize < 1) {
                 throw new IllegalArgumentException(
-                        "feed '%s': preferredBatchSize must be at least 1, was %d".formatted(feedId, preferredBatchSize));
+                        "feed '%s': preferredProcessingSize must be at least 1, was %d".formatted(feedId, preferredProcessingSize));
             }
-            this.preferredBatchSize = preferredBatchSize;
+            this.preferredProcessingSize = preferredProcessingSize;
             return this;
         }
 
         /**
-         * The safety net: force a flush (and thus a commit of the feed pointer) as soon as this many pages
-         * have been read without a flush, even if the batch is not full.
-         * Default: {@value FeedDefaults#MAX_UNFLUSHED_PAGES}.
+         * The safety net: once this many pages have been read without a commit, every boundary asks the
+         * processing to wrap up (even a partial batch), so the window a crash would have to re-read stays
+         * bounded. Default: {@value FeedDefaults#MAX_UNCOMMITTED_PAGES}.
          */
-        public Builder<T> maxUnflushedPages(int maxUnflushedPages) {
-            if (maxUnflushedPages < 1) {
-                // < 1 would silently degrade to a flush on every page boundary — exactly what the safety net avoids
+        public Builder<T> maxUncommittedPages(int maxUncommittedPages) {
+            if (maxUncommittedPages < 1) {
+                // < 1 would silently degrade to a wrap-up on every page boundary — exactly what the safety net avoids
                 throw new IllegalArgumentException(
-                        "feed '%s': maxUnflushedPages must be at least 1, was %d"
-                                .formatted(feedId, maxUnflushedPages));
+                        "feed '%s': maxUncommittedPages must be at least 1, was %d"
+                                .formatted(feedId, maxUncommittedPages));
             }
-            this.maxUnflushedPages = maxUnflushedPages;
+            this.maxUncommittedPages = maxUncommittedPages;
             return this;
         }
 

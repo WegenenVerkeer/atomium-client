@@ -2,9 +2,11 @@ package be.wegenenverkeer.atomium.client.handler;
 
 import be.wegenenverkeer.atomium.client.fetch.FeedPointer;
 import be.wegenenverkeer.atomium.client.protocol.FeedPageMetadata;
+import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.function.Consumer;
 
@@ -40,13 +42,10 @@ class FeedEventListeners implements FeedEventListener {
     }
 
     @Override
-    public void entriesProcessed(String feedId, List<? extends BatchEntry<?>> entries) {
-        dispatch(feedId, listener -> listener.entriesProcessed(feedId, entries));
-    }
-
-    @Override
-    public void feedPointerAdvanced(String feedId, FeedPointer feedPointer, FeedRunResult sincePreviousCommit) {
-        dispatch(feedId, listener -> listener.feedPointerAdvanced(feedId, feedPointer, sincePreviousCommit));
+    public void feedPointerAdvanced(String feedId, FeedPointer feedPointer, FeedRunResult sincePreviousCommit,
+                                    @Nullable OffsetDateTime latestEventUpdated) {
+        dispatch(feedId, listener ->
+                listener.feedPointerAdvanced(feedId, feedPointer, sincePreviousCommit, latestEventUpdated));
     }
 
     @Override

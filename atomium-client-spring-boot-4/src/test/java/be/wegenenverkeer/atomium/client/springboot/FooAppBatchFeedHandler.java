@@ -3,7 +3,7 @@ package be.wegenenverkeer.atomium.client.springboot;
 import org.springframework.stereotype.Component;
 
 /**
- * Handler for the batch test feed ({@code foo-app-batch}): threshold 3 via {@code batch.preferred-batch-size}, so the
+ * Handler for the batch test feed ({@code foo-app-batch}): threshold 3 via {@code processing.preferred-size}, so the
  * dedup and threshold scenarios stay short.
  */
 @Component

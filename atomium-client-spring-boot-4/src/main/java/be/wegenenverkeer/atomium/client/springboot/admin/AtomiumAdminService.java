@@ -25,7 +25,7 @@ import java.util.List;
 public class AtomiumAdminService {
 
     private static final Logger LOG = LoggerFactory.getLogger(AtomiumAdminService.class);
-    // ample for a typical flush transaction; a truly slow handler does not cancel the deactivation
+    // ample for a typical commit transaction; a truly slow handler does not cancel the deactivation
     private static final Duration DEACTIVATE_TIMEOUT = Duration.ofSeconds(10);
 
     private final Feeds feeds;

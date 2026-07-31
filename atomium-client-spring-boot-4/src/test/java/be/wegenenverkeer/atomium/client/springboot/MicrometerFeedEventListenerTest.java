@@ -1,11 +1,8 @@
 package be.wegenenverkeer.atomium.client.springboot;
 
 import be.wegenenverkeer.atomium.client.fetch.FeedPointer;
-import be.wegenenverkeer.atomium.client.handler.BatchEntry;
 import be.wegenenverkeer.atomium.client.handler.FeedRunFailure;
 import be.wegenenverkeer.atomium.client.handler.FeedRunResult;
-import be.wegenenverkeer.atomium.client.protocol.AtomiumEntry;
-import be.wegenenverkeer.atomium.client.protocol.Content;
 import io.micrometer.core.instrument.MockClock;
 import io.micrometer.core.instrument.simple.SimpleConfig;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -43,8 +40,8 @@ class MicrometerFeedEventListenerTest {
     @Test
     void countsEntriesPerCommit() {
         listener.runStarted("feed-a", POINTER);
-        listener.feedPointerAdvanced("feed-a", POINTER, new FeedRunResult(10, 6, 4));
-        listener.feedPointerAdvanced("feed-a", POINTER, new FeedRunResult(5, 5, 5));
+        listener.feedPointerAdvanced("feed-a", POINTER, new FeedRunResult(10, 6, 4), null);
+        listener.feedPointerAdvanced("feed-a", POINTER, new FeedRunResult(5, 5, 5), null);
 
         assertThat(counter("atomium.entries.read", "feed-a")).isEqualTo(15);
         assertThat(counter("atomium.entries.accepted", "feed-a")).isEqualTo(11);
@@ -53,8 +50,8 @@ class MicrometerFeedEventListenerTest {
 
     @Test
     void keepsTheCountersSeparatePerFeed() {
-        listener.feedPointerAdvanced("feed-a", POINTER, new FeedRunResult(10, 10, 10));
-        listener.feedPointerAdvanced("feed-b", POINTER, new FeedRunResult(3, 3, 3));
+        listener.feedPointerAdvanced("feed-a", POINTER, new FeedRunResult(10, 10, 10), null);
+        listener.feedPointerAdvanced("feed-b", POINTER, new FeedRunResult(3, 3, 3), null);
 
         assertThat(counter("atomium.entries.processed", "feed-a")).isEqualTo(10);
         assertThat(counter("atomium.entries.processed", "feed-b")).isEqualTo(3);
@@ -64,27 +61,26 @@ class MicrometerFeedEventListenerTest {
     void setsTheLastCommitTimestampOnEveryCommit() {
         assertThat(lastCommit("feed-a")).isNull();   // no commit yet → no gauge yet
 
-        listener.feedPointerAdvanced("feed-a", POINTER, EMPTY);
+        listener.feedPointerAdvanced("feed-a", POINTER, EMPTY, null);
         double firstCommit = lastCommit("feed-a");
         assertThat(firstCommit).isEqualTo(clock.wallTime());
 
         clock.add(Duration.ofMinutes(5));
-        listener.feedPointerAdvanced("feed-a", POINTER, EMPTY);
+        listener.feedPointerAdvanced("feed-a", POINTER, EMPTY, null);
         assertThat(lastCommit("feed-a")).isEqualTo(clock.wallTime()).isGreaterThan(firstCommit);
     }
 
     @Test
-    void setsTheLastEventTimestampToTheMostRecentProcessedEntry() {
-        assertThat(lastEvent("feed-a")).isNull();   // nothing processed yet → no gauge yet
+    void setsTheLastEventTimestampToTheYoungestCoveredEntry() {
+        assertThat(lastEvent("feed-a")).isNull();   // no commit covered an entry yet → no gauge yet
 
-        OffsetDateTime older = OffsetDateTime.parse("2026-07-28T10:00:00+02:00");
-        OffsetDateTime mostRecent = OffsetDateTime.parse("2026-07-28T10:05:00+02:00");
-        listener.entriesProcessed("feed-a", List.of(entry("id-1", older), entry("id-2", mostRecent)));
+        OffsetDateTime updated = OffsetDateTime.parse("2026-07-28T10:05:00+02:00");
+        listener.feedPointerAdvanced("feed-a", POINTER, EMPTY, updated);
 
-        assertThat(lastEvent("feed-a")).isEqualTo(mostRecent.toInstant().toEpochMilli());
+        assertThat(lastEvent("feed-a")).isEqualTo(updated.toInstant().toEpochMilli());
 
-        listener.entriesProcessed("feed-a", List.of());   // an empty flush changes nothing
-        assertThat(lastEvent("feed-a")).isEqualTo(mostRecent.toInstant().toEpochMilli());
+        listener.feedPointerAdvanced("feed-a", POINTER, EMPTY, null);   // a commit without entries changes nothing
+        assertThat(lastEvent("feed-a")).isEqualTo(updated.toInstant().toEpochMilli());
     }
 
     @Test
@@ -144,10 +140,6 @@ class MicrometerFeedEventListenerTest {
     private Double lastEvent(String feedId) {
         var gauge = registry.find("atomium.entries.last.event.time").tag("feed", feedId).timeGauge();
         return gauge == null ? null : gauge.value(TimeUnit.MILLISECONDS);
-    }
-
-    private static BatchEntry<String> entry(String id, OffsetDateTime updated) {
-        return new BatchEntry<>(null, new AtomiumEntry(id, updated, new Content(null, "{}"), List.of()), "content");
     }
 
     private static FeedRunFailure failure(String feedId, int consecutive) {
