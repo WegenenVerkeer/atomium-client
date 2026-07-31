@@ -4,10 +4,14 @@ import be.wegenenverkeer.atomium.client.fetch.AtomiumClient;
 import be.wegenenverkeer.atomium.client.fetch.FeedPointer;
 import be.wegenenverkeer.atomium.client.fetch.FetchEntry;
 import be.wegenenverkeer.atomium.client.fetch.FetchResult;
+import be.wegenenverkeer.atomium.client.handler.FeedProcessor.CheckpointReason;
+import be.wegenenverkeer.atomium.client.handler.FeedProcessor.State;
 import be.wegenenverkeer.atomium.client.protocol.AtomiumEntry;
-import be.wegenenverkeer.atomium.client.handler.FeedHandlerController.Code;
+import org.jspecify.annotations.Nullable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
-import java.util.List;
+import java.time.OffsetDateTime;
 import java.util.function.BooleanSupplier;
 import java.util.function.Supplier;
 
@@ -16,15 +20,18 @@ import java.util.function.Supplier;
  * start/stop lifecycle deliberately live in {@link FeedRunner}. The only lifecycle coupling is the
  * {@code isInterrupted} of {@link #run}.
  *
- * <p>The consumer does not talk to the handler directly, but to a {@link FeedHandlerController}: it owns the
- * buffer and reports a {@link Code buffer state} per callback; the consumer translates that code into what
- * happens with the transaction and the feedPointer (see {@link ReadRun#apply}).
+ * <p>The consumer does not talk to the handler directly, but to a {@link FeedProcessor}: it does the
+ * processing and answers with its {@link State overall state}; the consumer translates that state into what
+ * happens with the transaction and the feedPointer (see {@link ReadRun}).
  */
 class FeedConsumerImpl<T> implements FeedConsumer, EntryPusher {
 
+    private static final Logger LOG = LoggerFactory.getLogger(FeedConsumerImpl.class);
+
     private final String feedId;
-    private final FeedHandler<T> handler;                            // only still needed for pushEntry
-    private final Supplier<FeedHandlerController<T>> controllers;    // a fresh controller per run
+    private final FeedHandler<T> handler;                     // only still needed for pushEntry
+    private final Supplier<FeedProcessor<T>> processors;      // a fresh processor per run
+    private final int maxUncommittedPages;
     private final AtomiumClient atomiumClient;
     private final FeedContentDecoder<T> feedContentDecoder;
     private final FeedPointerRepository feedPointerRepository;
@@ -34,13 +41,15 @@ class FeedConsumerImpl<T> implements FeedConsumer, EntryPusher {
     private final Supplier<FeedPointer> initialFeedPointer;
     private final FeedEventListener listeners;
 
-    public FeedConsumerImpl(String feedId, FeedHandler<T> handler, Supplier<FeedHandlerController<T>> controllers,
-                            AtomiumClient atomiumClient, FeedContentDecoder<T> feedContentDecoder,
+    public FeedConsumerImpl(String feedId, FeedHandler<T> handler, Supplier<FeedProcessor<T>> processors,
+                            int maxUncommittedPages, AtomiumClient atomiumClient,
+                            FeedContentDecoder<T> feedContentDecoder,
                             FeedPointerRepository feedPointerRepository, FeedTransactions transactions,
                             Supplier<FeedPointer> initialFeedPointer, FeedEventListener listeners) {
         this.feedId = feedId;
         this.handler = handler;
-        this.controllers = controllers;
+        this.processors = processors;
+        this.maxUncommittedPages = maxUncommittedPages;
         this.atomiumClient = atomiumClient;
         this.feedContentDecoder = feedContentDecoder;
         this.feedPointerRepository = feedPointerRepository;
@@ -52,7 +61,7 @@ class FeedConsumerImpl<T> implements FeedConsumer, EntryPusher {
     /**
      * Process a raw content item as if it had been on the feed: decode it and offer it (inside one transaction,
      * just like the normal processing) to {@link FeedHandler#pushEntry}. Does <em>not</em> advance the feed pointer
-     * (the item was not really on the feed) and deliberately <em>bypasses the controller</em>: a push is not a
+     * (the item was not really on the feed) and deliberately <em>bypasses the processor</em>: a push is not a
      * feed entry and therefore does not belong in a batch.
      */
     @Override
@@ -69,23 +78,24 @@ class FeedConsumerImpl<T> implements FeedConsumer, EntryPusher {
 
     /**
      * Read the feed from the (persisted) feedPointer up to the head. Per page the entries are offered to the
-     * {@link FeedHandlerController} in read order, followed by {@code onEndOfPage}; at the end of the feed
-     * {@code onEndOfFeed} follows.
+     * {@link FeedProcessor} in read order; every boundary (page boundary, safety net, end of feed — also on a
+     * 304 — and interruption) offers the processor one checkpoint opportunity, with the strongest applicable
+     * {@link CheckpointReason reason}.
      *
      * <p>The effect of the handler is committed inside one transaction together with the advanced feedPointer, so
      * that on a crash no processed event is lost and no event that was already committed is offered again.
-     * <em>When</em> that transaction opens is determined by the buffer state the controller reports;
-     * during an HTTP fetch no transaction is ever open.
+     * <em>When</em> that transaction opens is determined by the state the processor answers; during an HTTP
+     * fetch no transaction is ever open.
      *
      * <p>After every commit point {@code isInterrupted} is consulted; if it is {@code true}, the run stops cleanly.
      * The next run resumes from the persisted pointer.
      *
      * <p><b>All</b> {@link FeedEventListener} events (except {@code runFailed}, which comes from the {@link FeedRunner})
-     * are emitted here, and always after the commit point — never from the {@link FeedHandlerController}, because it
-     * runs inside the flush transaction and therefore does not know whether the commit succeeds. The controller
-     * <em>reports</em> (what was processed, and the counters); the consumer emits. On a failure the consumer rethrows —
-     * decode/handler errors wrapped with entry context — and the runner emits the {@code runFailed} event plus its
-     * ERROR log.
+     * are emitted here, and always after the commit point — never from the {@link FeedProcessor}, because it
+     * cannot know whether the commit succeeds. The processor <em>reports</em> (its state and the counters); the
+     * consumer emits. On a failure the consumer rethrows — decode and handler errors wrapped with entry context
+     * (the decode wrap happens here, the handler wrap in the processors) — and the
+     * runner emits the {@code runFailed} event plus its ERROR log.
      */
     @Override
     public void run(BooleanSupplier isInterrupted) {
@@ -97,27 +107,46 @@ class FeedConsumerImpl<T> implements FeedConsumer, EntryPusher {
     }
 
     /**
-     * One run: the read loop plus its state. A fresh instance per run, so that the controller's buffer and the
+     * One run: the read loop plus its state. A fresh instance per run, so that the processor's state and the
      * pointer bookkeeping never linger between runs.
      *
-     * <p>The pointer bookkeeping is two-part, and that is the core of the batch model:
+     * <p>The pointer bookkeeping is two-part, and that is the core of the processing model:
      * <ul>
      *   <li>{@code pendingPointer} — where we <em>would</em> be: the pointer after the last entry offered to the
-     *       controller (or the page pointer on a boundary). Always moves along.</li>
+     *       processor (or the page pointer on a boundary). Always moves along.</li>
      *   <li>{@code persistedPointer} — where we <em>really</em> are: what is in the DB. Only moves along on a
-     *       commit. As long as the buffer contains uncommitted work, it stays pinned, so that a crash simply
+     *       commit. As long as the processor holds uncommitted work, it stays pinned, so that a crash simply
      *       offers those entries again.</li>
      * </ul>
+     *
+     * <p>On a page or feed boundary {@code pendingPointer} is the <b>page pointer</b>
+     * ({@code page.nextFeedPointer()}), never the entry-level pointer of the last entry: the entry pointer
+     * re-fetches the same page with a filter, the page pointer jumps to the next page with the etag — commit
+     * the entry pointer on a boundary and every poll of a quiet feed re-fetches its head instead of getting a
+     * 304.
      */
+    // Maintainer note — the commit path below always persists at the pointer the consumer is holding at the
+    // READY answer (the last offered entry, promoted to the page pointer on a boundary). That is a property of
+    // the current processors, not of the seam: the commit point stays an internal parameter (pendingPointer),
+    // so a future processor that persists up to an earlier entry only needs to hand the consumer a different
+    // pointer here — see the partial-checkpoints note on FeedProcessor.
     private final class ReadRun {
 
         private final BooleanSupplier isInterrupted;
-        private final FeedHandlerController<T> controller = controllers.get();
+        private final FeedProcessor<T> processor = processors.get();
         private final FeedPointer startPosition;
         private FeedPointer pendingPointer;
         private FeedPointer persistedPointer;
+        private int read;
         // the reference point for the per-commit deltas in feedPointerAdvanced
         private FeedRunResult previousCommit = new FeedRunResult(0, 0, 0);
+        // the updated of the youngest entry offered since the previous commit (what the next commit covers)
+        private @Nullable OffsetDateTime latestOfferedUpdated;
+        // the safety net: pages fully offered since the last commit; once at maxUncommittedPages, every
+        // boundary offers WINDOW_EXHAUSTED instead of PAGE_BOUNDARY until a commit resets the window
+        private int pagesSinceCommit;
+        // a declined WINDOW_EXHAUSTED opportunity is logged once per episode, not once per page
+        private boolean windowExhaustedDeclineLogged;
 
         ReadRun(BooleanSupplier isInterrupted) {
             this.isInterrupted = isInterrupted;
@@ -130,15 +159,15 @@ class FeedConsumerImpl<T> implements FeedConsumer, EntryPusher {
             return startPosition;
         }
 
-        /** The actual read loop; returns the counters of this run (which the controller keeps). */
+        /** The actual read loop; returns the counters of this run. */
         FeedRunResult read() {
             FeedPointer feedPointer = persistedPointer;
             while (true) {
                 FetchResult page = atomiumClient.fetch(feedPointer).orElse(null);
                 if (page == null) {   // 304 Not Modified: nothing new since the previous poll
-                    apply(controller.onEndOfFeed(), true);
+                    offerCheckpoint(CheckpointReason.END_OF_FEED);
                     listeners.feedNotModified(feedId);
-                    FeedRunResult result = controller.result();
+                    FeedRunResult result = result();
                     listeners.runCompleted(feedId, result);
                     return result;
                 }
@@ -149,13 +178,17 @@ class FeedConsumerImpl<T> implements FeedConsumer, EntryPusher {
                         return endWithInterruption();
                     }
                 }
-                processEndOfPage(page);
+                boolean endOfFeed = !page.feedHasMorePages();
+                processEndOfPage(page, endOfFeed);
                 // Advance the page-level pointer to the next page (also for a completely empty page),
                 // otherwise we keep refetching the same page.
                 feedPointer = page.nextFeedPointer();
                 listeners.pageProcessed(feedId, page.feedPageMetadata());
-                if (!page.feedHasMorePages()) {
-                    return endWithEndOfFeed();
+                if (endOfFeed) {
+                    listeners.endOfFeedReached(feedId);
+                    FeedRunResult result = result();
+                    listeners.runCompleted(feedId, result);
+                    return result;
                 }
                 if (isInterrupted.getAsBoolean()) {
                     return endWithInterruption();
@@ -164,72 +197,95 @@ class FeedConsumerImpl<T> implements FeedConsumer, EntryPusher {
         }
 
         private void processEntry(FetchResult page, FetchEntry fetchEntry) {
-            T content = decode(fetchEntry.entry());
-            Code code = controller.onEntry(new BatchEntry<>(page.feedPageMetadata(), fetchEntry.entry(), content));
+            AtomiumEntry entry = fetchEntry.entry();
+            T content = decode(entry);
+            read++;
+            latestOfferedUpdated = latest(latestOfferedUpdated, entry.updated());
+            State state = processor.processEntry(new ProcessingEntry<>(page.feedPageMetadata(), entry, content));
             pendingPointer = fetchEntry.nextFeedPointer();
-            apply(code, false);
+            // mid-page only a READY answer does anything: an idle processor is deliberately not checkpointed
+            // here (no needless pointer writes in the middle of a page), a buffering one pins the pointer
+            if (state == State.READY) {
+                commit();
+            }
         }
 
-        private void processEndOfPage(FetchResult page) {
-            Code code = controller.onEndOfPage(page.feedPageMetadata());
+        /**
+         * One checkpoint opportunity per boundary, with the strongest reason: {@code END_OF_FEED} on the last
+         * page, otherwise {@code WINDOW_EXHAUSTED} while the safety-net window is exceeded, otherwise
+         * {@code PAGE_BOUNDARY}. The pending pointer is the page pointer here (see the class javadoc).
+         */
+        private void processEndOfPage(FetchResult page, boolean endOfFeed) {
             pendingPointer = page.nextFeedPointer();
-            apply(code, true);
-        }
-
-        private FeedRunResult endWithEndOfFeed() {
-            apply(controller.onEndOfFeed(), true);
-            listeners.endOfFeedReached(feedId);
-            FeedRunResult result = controller.result();
-            listeners.runCompleted(feedId, result);
-            return result;
+            pagesSinceCommit++;
+            CheckpointReason reason = endOfFeed ? CheckpointReason.END_OF_FEED
+                    : pagesSinceCommit >= maxUncommittedPages ? CheckpointReason.WINDOW_EXHAUSTED
+                    : CheckpointReason.PAGE_BOUNDARY;
+            offerCheckpoint(reason);
         }
 
         private FeedRunResult endWithInterruption() {
-            apply(controller.onInterrupted(), true);
-            FeedRunResult result = controller.result();
+            offerCheckpoint(CheckpointReason.INTERRUPTED);
+            FeedRunResult result = result();
             listeners.runInterrupted(feedId, result);
             return result;
         }
 
         /**
-         * Translate the buffer state into what happens with the transaction, and emit the corresponding events —
-         * always <em>after</em> the commit, never inside it. {@code onBoundary} = we are on a page/feed boundary or
-         * an interruption; only there may an empty buffer checkpoint its pointer.
-         *
-         * <p>An exception from {@code flush()} (so from the handler) makes the {@link FeedTransactions} roll back and
-         * rethrows: the run failed, the pointer does not advance, nothing is emitted, and the {@link FeedRunner}
-         * engages its backoff.
+         * Offer the processor a checkpoint opportunity and translate its answer:
+         * <ul>
+         *   <li>{@code READY} — commit: effect and pointer atomically in one transaction;</li>
+         *   <li>{@code IDLE} — nothing to persist: checkpoint the pointer (a plain pointer write, so that an
+         *       empty or entirely filtered-out stretch is not fetched again on every poll) — unless it is
+         *       already where it should be (e.g. a 304): no needless writes;</li>
+         *   <li>{@code BUFFERING} — a legitimate refusal: the pointer stays pinned. Declining the safety net
+         *       is logged once per exceedance episode; declining at {@code END_OF_FEED}/{@code INTERRUPTED}
+         *       means the buffered work is discarded and re-read next run.</li>
+         * </ul>
          */
-        private void apply(Code code, boolean onBoundary) {
-            switch (code) {
-                // buffer not ready yet → persist nothing: the pointer stays pinned, so that the buffered
-                // entries are delivered again on the next run
-                case BUFFERING -> { }
-
-                // batch effect and pointer atomically in one transaction; the events only after the commit
-                case BUFFER_COMPLETE -> {
-                    List<BatchEntry<T>> processed = flushAndPersist();
-                    listeners.entriesProcessed(feedId, processed);
-                    listeners.feedPointerAdvanced(feedId, persistedPointer, deltaSincePreviousCommit());
-                }
-
-                // Nothing to process. On a boundary we checkpoint the pointer, so that an empty (or entirely
-                // filtered-out) tail is not fetched again on every poll. In the middle of a page's entries we
-                // deliberately postpone that. If the pointer is already where it should be (e.g. a 304), we do
-                // not write needlessly.
-                case BUFFER_EMPTY -> {
-                    if (onBoundary && !pendingPointer.equals(persistedPointer)) {
+        private void offerCheckpoint(CheckpointReason reason) {
+            State state = processor.onCheckpointOpportunity(reason);
+            switch (state) {
+                case READY -> commit();
+                case IDLE -> {
+                    if (!pendingPointer.equals(persistedPointer)) {
                         transactions.inTransactionWithoutResult(() -> writeFeedPointer(pendingPointer));
-                        persistedPointer = pendingPointer;
-                        listeners.feedPointerAdvanced(feedId, persistedPointer, deltaSincePreviousCommit());
+                        afterCommit();
+                    }
+                }
+                case BUFFERING -> {
+                    if (reason == CheckpointReason.WINDOW_EXHAUSTED && !windowExhaustedDeclineLogged) {
+                        LOG.warn("feed '{}': {} pages read without a commit and the processor declines to wrap "
+                                        + "up; the feed pointer stays pinned and the re-read window keeps growing",
+                                feedId, pagesSinceCommit);
+                        windowExhaustedDeclineLogged = true;
                     }
                 }
             }
         }
 
+        /** The prepared work and the pointer in one transaction; an exception rolls back and fails the run. */
+        private void commit() {
+            transactions.inTransactionWithoutResult(() -> {
+                processor.persist();
+                writeFeedPointer(pendingPointer);
+            });
+            afterCommit();
+        }
+
+        /** Shared post-commit bookkeeping: the pointer advanced, the safety-net window and delta reset. */
+        private void afterCommit() {
+            persistedPointer = pendingPointer;
+            pagesSinceCommit = 0;
+            windowExhaustedDeclineLogged = false;
+            OffsetDateTime covered = latestOfferedUpdated;
+            latestOfferedUpdated = null;
+            listeners.feedPointerAdvanced(feedId, persistedPointer, deltaSincePreviousCommit(), covered);
+        }
+
         /** The counters of what was added since the previous commit; the committed state becomes the new reference point. */
         private FeedRunResult deltaSincePreviousCommit() {
-            FeedRunResult cumulative = controller.result();
+            FeedRunResult cumulative = result();
             FeedRunResult delta = new FeedRunResult(
                     cumulative.read() - previousCommit.read(),
                     cumulative.accepted() - previousCommit.accepted(),
@@ -238,15 +294,9 @@ class FeedConsumerImpl<T> implements FeedConsumer, EntryPusher {
             return delta;
         }
 
-        /** The batch and the pointer in one transaction; returns what was actually processed (post-accepts, post-dedup). */
-        private List<BatchEntry<T>> flushAndPersist() {
-            List<BatchEntry<T>> processed = transactions.inTransaction(() -> {
-                List<BatchEntry<T>> flushed = controller.flush();
-                writeFeedPointer(pendingPointer);
-                return flushed;
-            });
-            persistedPointer = pendingPointer;
-            return processed;
+        /** The run counters: read is counted here, accepted/processed by the processor (it applies {@code accepts}). */
+        private FeedRunResult result() {
+            return new FeedRunResult(read, processor.accepted(), processor.processed());
         }
 
         private void writeFeedPointer(FeedPointer feedPointer) {
@@ -259,6 +309,10 @@ class FeedConsumerImpl<T> implements FeedConsumer, EntryPusher {
             } catch (RuntimeException e) {
                 throw new FeedEntryProcessingException(feedId, entry.id(), FeedEntryPhase.DECODE, e);
             }
+        }
+
+        private static @Nullable OffsetDateTime latest(@Nullable OffsetDateTime a, OffsetDateTime b) {
+            return a == null || b.isAfter(a) ? b : a;
         }
     }
 }

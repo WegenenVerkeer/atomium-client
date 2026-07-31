@@ -33,8 +33,8 @@ public record DemoProperties(
 
     public record SimpleBatched(
             @DefaultValue("false") boolean activeOnStartup,
-            @DefaultValue("5") int preferredBatchSize,
-            @DefaultValue("10") int maxUnflushedPages
+            @DefaultValue("5") int preferredProcessingSize,
+            @DefaultValue("10") int maxUncommittedPages
     ) {
     }
 }

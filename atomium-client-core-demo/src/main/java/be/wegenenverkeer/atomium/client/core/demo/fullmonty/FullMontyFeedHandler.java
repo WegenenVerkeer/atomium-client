@@ -26,7 +26,7 @@ import java.time.OffsetDateTime;
  * you activate, and it gets processed immediately.
  *
  * <p>The assembly with all the building blocks lives in {@link FullMontyDemoConfiguration}; for batch processing
- * (a {@code BatchedFeedHandler}) there is the separate {@code simple-batched} demo.
+ * (a {@code SimpleBatchedProcessingFeedHandler}) there is the separate {@code simple-batched} demo.
  */
 @Component
 public class FullMontyFeedHandler implements EntryFeedHandler<MontyContent> {

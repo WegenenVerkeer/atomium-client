@@ -1,7 +1,7 @@
 package be.wegenenverkeer.atomium.client.springboot;
 
-import be.wegenenverkeer.atomium.client.handler.BatchedFeedHandler;
 import be.wegenenverkeer.atomium.client.handler.EntryFeedHandler;
+import be.wegenenverkeer.atomium.client.handler.SimpleBatchedProcessingFeedHandler;
 import be.wegenenverkeer.atomium.client.handler.ExponentialFeedBackoffPolicy;
 import be.wegenenverkeer.atomium.client.handler.FeedDefaults;
 import be.wegenenverkeer.atomium.client.handler.FeedHandler;
@@ -29,7 +29,7 @@ import java.time.Duration;
  *                            expected (otherwise the feed fails at startup).
  * @param backoff             the backoff on consecutive failed runs (default: exponential
  *                            {@value Defaults#BACKOFF_INITIAL_INTERVAL} → … → {@value Defaults#BACKOFF_MAX_INTERVAL})
- * @param batch               the batch tuning; only meaningful with a {@link BatchedFeedHandler}
+ * @param processing          the processing tuning; only meaningful with a {@link SimpleBatchedProcessingFeedHandler}
  */
 public record AtomiumFeedProperties(
         @Nullable String url,
@@ -37,7 +37,7 @@ public record AtomiumFeedProperties(
         @DefaultValue(Defaults.QUERY_INTERVAL) Duration queryInterval,
         @Nullable InitialFeedPointer initialFeedPointer,
         @DefaultValue Backoff backoff,
-        @DefaultValue Batch batch
+        @DefaultValue Processing processing
 ) {
 
     public AtomiumFeedProperties {
@@ -48,7 +48,7 @@ public record AtomiumFeedProperties(
 
     /**
      * The binding defaults of this config, in one findable place (the {@code @DefaultValue} annotations use
-     * these constants; the javadoc refers to them with {@code {@value}}). The batch defaults are deliberately
+     * these constants; the javadoc refers to them with {@code {@value}}). The processing defaults are deliberately
      * <em>not</em> here: they are behavior of the core layer — see {@link FeedDefaults}.
      */
     public static final class Defaults {
@@ -64,40 +64,39 @@ public record AtomiumFeedProperties(
     }
 
     /**
-     * The batching tuning ({@code atomium.feeds.<feedId>.batch.*}). Deliberately config rather than code: the
-     * <em>key</em> to deduplicate on is a domain concern (the developer chooses it in
-     * {@link BatchedFeedHandler#startBatch}), but the <em>size</em> is a tuning parameter that differs per
-     * environment.
+     * The processing tuning ({@code atomium.feeds.<feedId>.processing.*}). Deliberately config rather than code:
+     * what the processing <em>does</em> is a domain concern (the developer writes {@code process}/{@code persist}),
+     * but the <em>size</em> is a tuning parameter that differs per environment.
      *
      * <p>Both parameters are optional; empty = the lib's default (the {@code Feed} layer in core knows the
      * defaults, this config only passes on what is set explicitly).
      *
-     * @param preferredBatchSize the number of <em>distinct</em> keys at which a batch is complete;
-     *                          empty → {@value FeedDefaults#PREFERRED_BATCH_SIZE}.
-     *                          Only meaningful with a {@link BatchedFeedHandler}: if an {@link EntryFeedHandler}
-     *                          backs this feed, a value that is set deliberately fails at startup (that handler
-     *                          processes per entry — a batch size would be silently ignored).
-     * @param maxUnflushedPages the <b>safety net</b>: force a flush (and thus a commit of the feed pointer) as soon
-     *                          as this many pages have been read without a flush, even if the batch is not full;
-     *                          empty → {@value FeedDefaults#MAX_UNFLUSHED_PAGES}.
-     *                          Without this, a heavily filtering/deduplicating feed would rarely reach its threshold:
+     * @param preferredSize     the number of accepted entries at which a batch is processed;
+     *                          empty → {@value FeedDefaults#PREFERRED_PROCESSING_SIZE}.
+     *                          Only meaningful with a {@link SimpleBatchedProcessingFeedHandler}: if an
+     *                          {@link EntryFeedHandler} backs this feed, a value that is set deliberately fails at
+     *                          startup (that handler processes per entry — a processing size would be silently ignored).
+     * @param maxUncommittedPages the <b>safety net</b>: once this many pages have been read without a commit, every
+     *                          boundary asks the processing to wrap up (even a partial batch);
+     *                          empty → {@value FeedDefaults#MAX_UNCOMMITTED_PAGES}.
+     *                          Without this, a heavily filtering feed would rarely reach its threshold:
      *                          the feed pointer then stays pinned, there is no intermediate progress, and a crash has
      *                          to re-fetch an unbounded number of pages. With an {@link EntryFeedHandler}
-     *                          (batch of 1) this safety net never triggers.
+     *                          (commit per entry) this safety net never triggers.
      */
-    public record Batch(
-            @Nullable Integer preferredBatchSize,
-            @Nullable Integer maxUnflushedPages
+    public record Processing(
+            @Nullable Integer preferredSize,
+            @Nullable Integer maxUncommittedPages
     ) {
 
-        public Batch {
-            if (preferredBatchSize != null && preferredBatchSize < 1) {
+        public Processing {
+            if (preferredSize != null && preferredSize < 1) {
                 throw new IllegalArgumentException(
-                        "batch.preferred-batch-size must be at least 1, was " + preferredBatchSize);
+                        "processing.preferred-size must be at least 1, was " + preferredSize);
             }
-            if (maxUnflushedPages != null && maxUnflushedPages < 1) {
+            if (maxUncommittedPages != null && maxUncommittedPages < 1) {
                 throw new IllegalArgumentException(
-                        "batch.max-unflushed-pages must be at least 1, was " + maxUnflushedPages);
+                        "processing.max-uncommitted-pages must be at least 1, was " + maxUncommittedPages);
             }
         }
     }

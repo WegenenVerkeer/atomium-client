@@ -5,10 +5,11 @@ import be.wegenenverkeer.atomium.client.fetch.FeedPointer;
 import be.wegenenverkeer.atomium.client.fetch.FetchCoordinate;
 import be.wegenenverkeer.atomium.client.protocol.FeedPageMetadata;
 import be.wegenenverkeer.atomium.client.protocol.FeedPageRel;
+import org.jspecify.annotations.Nullable;
 
+import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
-import java.util.stream.Collectors;
 
 /**
  * Test {@link FeedEventListener} that records every event in order, so a test can validate the exact event
@@ -16,14 +17,16 @@ import java.util.stream.Collectors;
  *
  * <p>Because {@code feedPointerAdvanced} fires on every commit (and guaranteed only after the commit), this listener
  * doubles as the window on the pointer bookkeeping: {@link #pointerCommits()} gives exactly the positions at which the
- * feed committed — i.e. what a crash at any moment would leave behind. That a pointer did <em>not</em> advance (a batch
- * that is still buffering) shows in the <em>absence</em> of a commit.
+ * feed committed — i.e. what a crash at any moment would leave behind. That a pointer did <em>not</em> advance (a
+ * processor that is still buffering) shows in the <em>absence</em> of a commit.
  */
 public class RecordingFeedEventListener implements FeedEventListener {
 
     private final List<String> events = new CopyOnWriteArrayList<>();
     private final List<String> pointerCommits = new CopyOnWriteArrayList<>();
     private final List<String> commitDeltas = new CopyOnWriteArrayList<>();
+    private final List<String> commitLatestEvents = new CopyOnWriteArrayList<>();
+    private final List<FeedRunFailure> failures = new CopyOnWriteArrayList<>();
 
     @Override
     public void runStarted(String feedId, FeedPointer startPosition) {
@@ -41,18 +44,13 @@ public class RecordingFeedEventListener implements FeedEventListener {
     }
 
     @Override
-    public void entriesProcessed(String feedId, List<? extends BatchEntry<?>> entries) {
-        events.add("entriesProcessed(%s)".formatted(entries.stream()
-                .map(batchEntry -> batchEntry.entry().id())
-                .collect(Collectors.joining(", "))));
-    }
-
-    @Override
-    public void feedPointerAdvanced(String feedId, FeedPointer feedPointer, FeedRunResult sincePreviousCommit) {
+    public void feedPointerAdvanced(String feedId, FeedPointer feedPointer, FeedRunResult sincePreviousCommit,
+                                    @Nullable OffsetDateTime latestEventUpdated) {
         String position = show(feedPointer);
         events.add("feedPointerAdvanced(%s)".formatted(position));
         pointerCommits.add(position);
         commitDeltas.add(show(sincePreviousCommit));
+        commitLatestEvents.add(latestEventUpdated == null ? "-" : latestEventUpdated.toString());
     }
 
     @Override
@@ -78,6 +76,7 @@ public class RecordingFeedEventListener implements FeedEventListener {
     @Override
     public void runFailed(FeedRunFailure failure) {
         events.add("runFailed(%d)".formatted(failure.consecutiveFailures()));
+        failures.add(failure);
     }
 
     /** The full event timeline. */
@@ -95,9 +94,22 @@ public class RecordingFeedEventListener implements FeedEventListener {
         return commitDeltas;
     }
 
+    /** The {@code latestEventUpdated} per commit ({@code -} when the commit covered no entries), in commit order. */
+    public List<String> commitLatestEvents() {
+        return commitLatestEvents;
+    }
+
+    /** The full {@link FeedRunFailure} payloads, for asserts on the entry context of a failure. */
+    public List<FeedRunFailure> failures() {
+        return failures;
+    }
+
     public void reset() {
         events.clear();
         pointerCommits.clear();
+        commitDeltas.clear();
+        commitLatestEvents.clear();
+        failures.clear();
     }
 
     /** Compact representation: {@code lastEvent=/0#id-001 nextFetch=/0?after=id-001}. */

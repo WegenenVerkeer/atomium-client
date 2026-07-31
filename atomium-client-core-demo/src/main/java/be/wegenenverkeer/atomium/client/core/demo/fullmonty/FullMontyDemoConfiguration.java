@@ -4,7 +4,6 @@ import be.wegenenverkeer.atomium.client.core.demo.DemoAtomiumClients;
 import be.wegenenverkeer.atomium.client.core.demo.DemoProperties;
 import be.wegenenverkeer.atomium.client.fetch.AtomiumClient;
 import be.wegenenverkeer.atomium.client.fetch.FeedPointer;
-import be.wegenenverkeer.atomium.client.handler.BatchEntry;
 import be.wegenenverkeer.atomium.client.handler.ExponentialFeedBackoffPolicy;
 import be.wegenenverkeer.atomium.client.handler.Feed;
 import be.wegenenverkeer.atomium.client.handler.FeedEventListener;
@@ -13,6 +12,7 @@ import be.wegenenverkeer.atomium.client.handler.FeedRuntime;
 import be.wegenenverkeer.atomium.client.handler.LoggingFeedEventListener;
 import be.wegenenverkeer.atomium.client.handler.PerFeedThreadExecutors;
 import be.wegenenverkeer.atomium.client.jackson.JacksonFeedContentDecoder;
+import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.Bean;
@@ -23,7 +23,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 import tools.jackson.databind.json.JsonMapper;
 
 import java.time.Duration;
-import java.util.List;
+import java.time.OffsetDateTime;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
@@ -31,7 +31,7 @@ import java.util.concurrent.atomic.AtomicLong;
  * building block and <em>every</em> knob of the builder — the mirror image of the minimal
  * {@code SimpleDemoConfiguration}. The implementations are deliberately thin; the point is to show which
  * building blocks exist and where they plug in. (The builder's two batch knobs belong to a
- * {@code BatchedFeedHandler} — see the {@code simple-batched} assembly.)
+ * {@code SimpleBatchedProcessingFeedHandler} — see the {@code simple-batched} assembly.)
  */
 @Configuration
 class FullMontyDemoConfiguration {
@@ -82,14 +82,10 @@ class FullMontyDemoConfiguration {
         AtomicLong total = new AtomicLong();
         return new FeedEventListener() {
             @Override
-            public void entriesProcessed(String id, List<? extends BatchEntry<?>> entries) {
+            public void feedPointerAdvanced(String id, FeedPointer feedPointer, FeedRunResult sincePreviousCommit,
+                                            @Nullable OffsetDateTime latestEventUpdated) {
                 LOG.info("demo-listener: feed '{}' is at {} processed event(s)",
-                        feedId, total.addAndGet(entries.size()));
-            }
-
-            @Override
-            public void feedPointerAdvanced(String id, FeedPointer feedPointer, FeedRunResult sincePreviousCommit) {
-                LOG.debug("demo-listener: feed '{}' committed at {}", feedId, feedPointer);
+                        feedId, total.addAndGet(sincePreviousCommit.processed()));
             }
         };
     }

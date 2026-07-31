@@ -40,6 +40,13 @@
             <artifactId>assertj-core</artifactId>
             <scope>test</scope>
         </dependency>
+        <!-- slf4j binding, so tests can assert framework log output (e.g. the safety-net decline warning) -->
+        <dependency>
+            <groupId>ch.qos.logback</groupId>
+            <artifactId>logback-classic</artifactId>
+            <version>${logback.version}</version>
+            <scope>test</scope>
+        </dependency>
         <!-- only for the reference FeedPageDecoder in the tests (Jackson 3) -->
         <dependency>
             <groupId>tools.jackson.core</groupId>

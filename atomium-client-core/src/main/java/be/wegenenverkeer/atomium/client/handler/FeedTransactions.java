@@ -4,8 +4,8 @@ import java.util.function.Supplier;
 
 /**
  * Executes the processing work of a feed in a transaction. The framework uses this in exactly two
- * places: the flush of a batch (the handler effect and the feed pointer atomically together) and a push of a
- * standalone content item.
+ * places: the commit of processed work (the handler effect and the feed pointer atomically together) and a
+ * push of a standalone content item.
  *
  * <p><b>Contract:</b> the work runs entirely within one transaction. If the work throws a
  * {@link RuntimeException}, the transaction is rolled back and the exception is rethrown unchanged.
@@ -26,7 +26,7 @@ public interface FeedTransactions {
     /**
      * An implementation without transactions: the work is executed directly. For applications without
      * transactional persistence. The guarantee that the handler effect and the feed pointer are committed together
-     * is then lost: after a crash during a flush the feed pointer can lag behind (or run ahead of) the
+     * is then lost: after a crash during a commit the feed pointer can lag behind (or run ahead of) the
      * handler's effect — which makes it all the more important that the processing is idempotent.
      */
     static FeedTransactions withoutTransactions() {

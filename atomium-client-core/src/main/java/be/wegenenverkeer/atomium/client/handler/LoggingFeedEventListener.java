@@ -3,11 +3,12 @@ package be.wegenenverkeer.atomium.client.handler;
 import be.wegenenverkeer.atomium.client.fetch.FeedPointer;
 import be.wegenenverkeer.atomium.client.protocol.FeedPageMetadata;
 import be.wegenenverkeer.atomium.client.protocol.FeedPageRel;
+import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.time.OffsetDateTime;
 import java.time.format.DateTimeFormatter;
-import java.util.List;
 
 /**
  * The bundled standard {@link FeedEventListener}: logs the feed events at DEBUG (per entry and fine-grained
@@ -38,19 +39,12 @@ public class LoggingFeedEventListener implements FeedEventListener {
     }
 
     @Override
-    public void entriesProcessed(String feedId, List<? extends BatchEntry<?>> entries) {
-        if (!LOG.isDebugEnabled()) {
-            return;
-        }
-        for (BatchEntry<?> batchEntry : entries) {
-            LOG.debug("feed '{}': processed entry '{}' (updated {})",
-                    feedId, batchEntry.entry().id(), TIMESTAMP.format(batchEntry.entry().updated()));
-        }
-    }
-
-    @Override
-    public void feedPointerAdvanced(String feedId, FeedPointer feedPointer, FeedRunResult sincePreviousCommit) {
-        LOG.debug("feed '{}': feed pointer committed at page '{}'", feedId, feedPointer.nextFetch().pageLink());
+    public void feedPointerAdvanced(String feedId, FeedPointer feedPointer, FeedRunResult sincePreviousCommit,
+                                    @Nullable OffsetDateTime latestEventUpdated) {
+        LOG.debug("feed '{}': feed pointer committed at page '{}' ({} read, {} accepted, {} processed{})",
+                feedId, feedPointer.nextFetch().pageLink(),
+                sincePreviousCommit.read(), sincePreviousCommit.accepted(), sincePreviousCommit.processed(),
+                latestEventUpdated == null ? "" : "; latest event " + TIMESTAMP.format(latestEventUpdated));
     }
 
     @Override
@@ -65,8 +59,8 @@ public class LoggingFeedEventListener implements FeedEventListener {
 
     @Override
     public void runInterrupted(String feedId, FeedRunResult result) {
-        LOG.info("feed '{}': run interrupted after {} processed entries; the next run resumes the rest",
-                feedId, result.processed());
+        LOG.info("feed '{}': run interrupted; {} read, {} accepted, {} processed — the next run resumes the rest",
+                feedId, result.read(), result.accepted(), result.processed());
     }
 
     @Override

@@ -55,7 +55,7 @@ atomium:
 
     # The fully equipped demo feed: an EntryFeedHandler (the typical case) with a custom content DTO
     # (MontyContent), accepts and pushEntry. Also shows ALL available per-feed properties, each with a comment
-    # (except batch.* — only meaningful with a BatchedFeedHandler, see simple-batched).
+    # (except processing.* — only meaningful with a SimpleBatchedProcessingFeedHandler, see simple-batched).
     # Deliberately inactive (active-on-startup: false) so you activate it yourself during the demo; the code
     # variation points of the customizer SPI live in FullMontyDemoConfiguration.
     full-monty:
@@ -77,15 +77,15 @@ atomium:
         max-interval: 1h       # upper bound on the wait time (default 1h)
         multiplier: 2          # growth factor per failure (default 2)
 
-    # The simplest possible batch demo: a BatchedFeedHandler on a raw JsonNode (SimpleBatchedFeedHandler) with
-    # the bundled DefaultFeedHandlerBatch. Also inactive: activate it during the demo — the backlog that 'simple'
+    # The simplest possible batch demo: a SimpleBatchedProcessingFeedHandler on a raw JsonNode (SimpleBatchedFeedHandler) with
+    # the two phases (process outside the transaction, persist inside it). Also inactive: activate it during the demo — the backlog that 'simple'
     # meanwhile made grow then immediately becomes visible as it gets processed in batches.
     simple-batched:
       url: http://localhost:14210/atomium-client-spring-boot-4-demo/demo-feed
       active-on-startup: false
       initial-feed-pointer:
         type: oldest
-      # batch tuning (only meaningful with a BatchedFeedHandler; on an EntryFeedHandler preferred-batch-size fails fast)
-      batch:
-        preferred-batch-size: 5          # the batch is 'complete' at this many distinct keys; empty -> 100
-        max-unflushed-pages: 10  # safety net: force a commit after this many pages without a flush; empty -> 10
+      # processing tuning (only meaningful with a SimpleBatchedProcessingFeedHandler; on an EntryFeedHandler preferred-size fails fast)
+      processing:
+        preferred-size: 5        # the batch is processed at this many accepted entries; empty -> 100
+        max-uncommitted-pages: 10  # safety net: ask the processing to wrap up after this many pages without a commit; empty -> 10

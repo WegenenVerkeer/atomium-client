@@ -36,7 +36,7 @@ demo:
   simple-batched:
     # also inactive: activate it during the demo — the backlog then visibly gets processed in batches
     active-on-startup: false
-    # the batch is 'complete' at this many distinct keys
-    preferred-batch-size: 5
-    # safety net: force a commit after this many pages without a flush
-    max-unflushed-pages: 10
+    # the batch is processed at this many accepted entries
+    preferred-processing-size: 5
+    # safety net: ask the processing to wrap up after this many pages without a commit
+    max-uncommitted-pages: 10

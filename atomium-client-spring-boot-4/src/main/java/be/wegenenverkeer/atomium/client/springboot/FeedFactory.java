@@ -124,11 +124,11 @@ public class FeedFactory {
                 .addListeners(configuration.listeners())
                 .queryInterval(properties.queryInterval())
                 .activeOnStartup(properties.activeOnStartup())
-                .preferredBatchSize(properties.batch().preferredBatchSize());
+                .preferredProcessingSize(properties.processing().preferredSize());
         // only pass on explicitly set config; empty = the core default of the Feed builder
-        Integer maxUnflushedPages = properties.batch().maxUnflushedPages();
-        if (maxUnflushedPages != null) {
-            builder.maxUnflushedPages(maxUnflushedPages);
+        Integer maxUncommittedPages = properties.processing().maxUncommittedPages();
+        if (maxUncommittedPages != null) {
+            builder.maxUncommittedPages(maxUncommittedPages);
         }
         return builder.build();
     }
@@ -180,22 +180,23 @@ public class FeedFactory {
         if (properties.url() == null || properties.url().isBlank()) {
             throw new IllegalStateException("atomium.feeds.%s.url is required".formatted(feedId));
         }
-        validateBatchConfig(feedId, handler, properties.batch());
+        validateProcessingConfig(feedId, handler, properties.processing());
         return properties;
     }
 
     /**
-     * A {@code preferred-batch-size} on a feed with an {@link EntryFeedHandler} is a configuration mistake — that
-     * handler processes per entry, so the threshold is always 1. We reject the property fail-fast at startup
+     * A {@code processing.preferred-size} on a feed with an {@link EntryFeedHandler} is a configuration mistake —
+     * that handler processes per entry, so the threshold is always 1. We reject the property fail-fast at startup
      * instead of silently ignoring it.
      */
-    static void validateBatchConfig(String feedId, FeedHandler<?> handler, AtomiumFeedProperties.Batch batch) {
+    static void validateProcessingConfig(String feedId, FeedHandler<?> handler,
+                                         AtomiumFeedProperties.Processing processing) {
         // configuration validation, with the property name in the message; core additionally asserts the same
         // condition framework-neutrally — deliberately two checks, each with a different purpose
-        if (batch.preferredBatchSize() != null && handler instanceof EntryFeedHandler<?>) {
-            throw new IllegalStateException(("'atomium.feeds.%s.batch.preferred-batch-size' is set, but handler %s "
-                    + "is an EntryFeedHandler (processes per entry, batch size is always 1). Remove the "
-                    + "property, or implement BatchedFeedHandler.")
+        if (processing.preferredSize() != null && handler instanceof EntryFeedHandler<?>) {
+            throw new IllegalStateException(("'atomium.feeds.%s.processing.preferred-size' is set, but handler %s "
+                    + "is an EntryFeedHandler (processes per entry, the processing size is always 1). Remove the "
+                    + "property, or implement SimpleBatchedProcessingFeedHandler.")
                     .formatted(feedId, handler.getClass().getName()));
         }
     }

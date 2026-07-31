@@ -1,7 +1,6 @@
 package be.wegenenverkeer.atomium.client.springboot;
 
 import be.wegenenverkeer.atomium.client.fetch.FeedPointer;
-import be.wegenenverkeer.atomium.client.handler.BatchEntry;
 import be.wegenenverkeer.atomium.client.handler.FeedEventListener;
 import be.wegenenverkeer.atomium.client.handler.FeedRunFailure;
 import be.wegenenverkeer.atomium.client.handler.FeedRunResult;
@@ -9,9 +8,9 @@ import be.wegenenverkeer.atomium.client.protocol.FeedPageMetadata;
 import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.TimeGauge;
+import org.jspecify.annotations.Nullable;
 
-import java.util.Comparator;
-import java.util.List;
+import java.time.OffsetDateTime;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -31,9 +30,9 @@ import java.util.concurrent.atomic.AtomicLong;
  *
  * <table><caption>The metrics (all tagged {@code feed})</caption>
  *   <tr><td>{@code atomium.runs} (tag {@code outcome})</td><td>counter</td><td>one run ended ({@code completed}/{@code interrupted}/{@code failed})</td></tr>
- *   <tr><td>{@code atomium.entries.read|accepted|processed}</td><td>counter</td><td>entries, summed per commit</td></tr>
+ *   <tr><td>{@code atomium.entries.read|accepted|processed}</td><td>counter</td><td>summed per commit; read/accepted count entries, processed is the handler's own measure of realised work (default: entries)</td></tr>
  *   <tr><td>{@code atomium.entries.last.commit.time}</td><td>time gauge</td><td>timestamp of the last commit (is the feed still alive?)</td></tr>
- *   <tr><td>{@code atomium.entries.last.event.time}</td><td>time gauge</td><td>{@code updated} of the most recent processed event (how current is the data?)</td></tr>
+ *   <tr><td>{@code atomium.entries.last.event.time}</td><td>time gauge</td><td>{@code updated} of the youngest event a commit covered (how current is the data?)</td></tr>
  *   <tr><td>{@code atomium.pages.fetched}</td><td>counter</td><td>HTTP pages fetched</td></tr>
  *   <tr><td>{@code atomium.polls.not.modified}</td><td>counter</td><td>polls that got {@code 304 Not Modified}</td></tr>
  *   <tr><td>{@code atomium.runs.consecutive.failures}</td><td>gauge</td><td>current number of consecutive failures (0 = healthy)</td></tr>
@@ -84,19 +83,15 @@ public class MicrometerFeedEventListener implements FeedEventListener {
     }
 
     @Override
-    public void entriesProcessed(String feedId, List<? extends BatchEntry<?>> entries) {
-        entries.stream()
-                .map(batchEntry -> batchEntry.entry().updated())
-                .max(Comparator.naturalOrder())
-                .ifPresent(updated -> lastEventGauge(feedId).set(updated.toInstant().toEpochMilli()));
-    }
-
-    @Override
-    public void feedPointerAdvanced(String feedId, FeedPointer feedPointer, FeedRunResult sincePreviousCommit) {
+    public void feedPointerAdvanced(String feedId, FeedPointer feedPointer, FeedRunResult sincePreviousCommit,
+                                    @Nullable OffsetDateTime latestEventUpdated) {
         registry.counter("atomium.entries.read", TAG_FEED, feedId).increment(sincePreviousCommit.read());
         registry.counter("atomium.entries.accepted", TAG_FEED, feedId).increment(sincePreviousCommit.accepted());
         registry.counter("atomium.entries.processed", TAG_FEED, feedId).increment(sincePreviousCommit.processed());
         lastCommitGauge(feedId).set(registry.config().clock().wallTime());
+        if (latestEventUpdated != null) {
+            lastEventGauge(feedId).set(latestEventUpdated.toInstant().toEpochMilli());
+        }
     }
 
     /** The backing counter of the gauge for this feed; the gauge is registered once at the first touch. */

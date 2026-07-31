@@ -24,9 +24,9 @@ for local experimenting only; **no Docker needed** (H2 in-memory).
   `FeedTransactions` (on Spring's `TransactionTemplate`), a custom backoff policy, the managed
   `PerFeedThreadExecutors` and extra `FeedEventListener`s. The handler is an `EntryFeedHandler` (the common
   case) with a **custom content DTO** (`MontyContent`), `accepts` filtering and `pushEntry`.
-- **`simple-batched`** — the simplest possible **batch processing**: a `BatchedFeedHandler` on a raw
-  `JsonNode` with the bundled `DefaultFeedHandlerBatch` (`SimpleBatchedFeedHandler`); the assembly
-  (`SimpleBatchedDemoConfiguration`) is the minimal one plus the builder's two batch knobs.
+- **`simple-batched`** — the simplest possible **batch processing**: a `SimpleBatchedProcessingFeedHandler`
+  on a raw `JsonNode` showing the two phases (`SimpleBatchedFeedHandler`); the assembly
+  (`SimpleBatchedDemoConfiguration`) is the minimal one plus the builder's two processing knobs.
 - The **`SimpleFeedScheduler`** (from core) polls the active feeds every `demo.query-interval`; the
   `Feeds` registry and the **`DemoControlEndpoint`** (`/rest/demo/feeds`) drive them.
 

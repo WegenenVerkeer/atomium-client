@@ -14,7 +14,7 @@ import static org.assertj.core.api.Assertions.assertThatNullPointerException;
 
 /**
  * The {@link Feed.Builder} validates fail-fast: a definition that cannot run may never become a {@link Feed}
- * (the most dangerous case — {@code maxUnflushedPages < 1} — would otherwise silently degrade to a flush on
+ * (the most dangerous case — {@code maxUncommittedPages < 1} — would otherwise silently degrade to a flush on
  * every page boundary).
  */
 class FeedTest {
@@ -58,18 +58,18 @@ class FeedTest {
     }
 
     @Test
-    void maxUnflushedPagesMustBeAtLeastOne() {
+    void maxUncommittedPagesMustBeAtLeastOne() {
         assertThatIllegalArgumentException()
-                .isThrownBy(() -> builder().maxUnflushedPages(0))
-                .withMessageContaining("maxUnflushedPages");
+                .isThrownBy(() -> builder().maxUncommittedPages(0))
+                .withMessageContaining("maxUncommittedPages");
     }
 
     @Test
-    void preferredBatchSizeMustBeAtLeastOneOrAbsent() {
+    void preferredProcessingSizeMustBeAtLeastOneOrAbsent() {
         assertThatIllegalArgumentException()
-                .isThrownBy(() -> builder().preferredBatchSize(0))
-                .withMessageContaining("preferredBatchSize");
-        builder().preferredBatchSize(null);   // absent is valid (framework default)
+                .isThrownBy(() -> builder().preferredProcessingSize(0))
+                .withMessageContaining("preferredProcessingSize");
+        builder().preferredProcessingSize(null);   // absent is valid (framework default)
     }
 
     private static Feed.Builder<String> builder() {
