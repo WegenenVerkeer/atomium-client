@@ -27,7 +27,8 @@ You supply two things: a **`FeedHandler`** (what to do with each event) and a
    The auto-configuration starts by itself. It expects a `DataSource` (`JdbcClient`) and a
    `PlatformTransactionManager` in the context — in an ordinary Spring Boot app that is the default. Import the
    [`atomium-client-bom`](../README.md#versions--compatibility) to pin the suite versions consistently.
-2. Implement an [`EntryFeedHandler`](#the-feedhandlerc) bean — what to do with each event.
+2. Implement a [`FeedHandler`](#the-feedhandlerc) bean — what to do with each event (two variants; the
+   choice is explained below).
 3. Provide a [`FeedRestClientBuilders`](#the-feedrestclientbuilders) bean — how to reach the source feed.
 4. [Configure](#configuration-atomium) the feed under `atomium.feeds.<feedId>` — at a minimum:
 
@@ -49,8 +50,14 @@ The rest of this README is the reference, per component.
 The SPI carrying your domain logic. Register it as a `@Component`; the framework puts a feed consumer on
 each handler. `C` is the domain type the raw JSON content is deserialized into.
 
-You don't implement `FeedHandler` itself, but one of its two variants. In the vast majority of cases that is
-**`EntryFeedHandler<C>`**, which processes the events one by one:
+You don't implement `FeedHandler` itself, but one of its two variants. The choice hinges on **where the
+processing work happens**, not on how many entities an event concerns: is the event payload self-contained
+and the processing local (database writes) → `EntryFeedHandler`; does processing involve **remote** work
+(the common feed shape "entity X changed, fetch its latest version") →
+[`SimpleProcessingFeedHandler`](#the-simpleprocessingfeedhandlerc-p--batch-processing-in-two-phases),
+even when every event concerns a single entity.
+
+**`EntryFeedHandler<C>`** processes the events one by one:
 
 ```java
 @Component
@@ -72,21 +79,26 @@ class MyEventFeedHandler implements EntryFeedHandler<MyEvent> {
 | --- | --- | --- |
 | `getFeedId()` | yes | The unique identity of the feed: at once the config key (`atomium.feeds.<feedId>`), the DB key, the thread name and the admin URL segment. Short and stable, **without dots**. |
 | `onEntry(pageMetadata, entry, content)` | yes (`EntryFeedHandler`) | For each event, in read order (oldest first). Its effect is committed in one transaction together with the advanced feed pointer. |
-| `process(entries)` / `persist(prepared)` | yes (`SimpleBatchedProcessingFeedHandler`) | Per batch, in two phases — see below. |
+| `process(entries)` / `persist(prepared)` | yes (`SimpleProcessingFeedHandler`) | Per batch, in two phases — see below. |
 | `accepts(pageMetadata, entry, content)` | no | Is this entry relevant? `false` → the framework ignores it entirely and simply advances the pointer past it. Default: everything is relevant. |
 | `pushEntry(content)` | no (opt-in) | Process an item **as if** it were on the feed (via the admin endpoint); unsupported by default. |
 
 The handler is **pure domain** (identity + callbacks) and **stateless**: the framework owns the buffer and hands the
 callback everything it needs. Infrastructure config happens elsewhere (see below).
 
-### The `SimpleBatchedProcessingFeedHandler<C, P>` — batch processing in two phases
+### The `SimpleProcessingFeedHandler<C, P>` — batch processing in two phases
 
 Some feeds produce bursts of events faster than you can process them one by one (committing per entry is then
-too slow → you fall days behind). And some processing is inherently batch-shaped: an asset repository system
-publishes change events, and you look the changed assets up in bulk against an API that accepts at most 1000
-ids per request — a call you do not want inside an open database transaction.
+too slow → you fall days behind). And a lot of processing involves remote work: an asset repository system
+publishes change events, and you look the changed assets up against the source — in bulk if the API takes
+many ids per request, otherwise call by call. Those calls do not belong inside an open database transaction:
+a transaction stalled on remote I/O holds its database connection hostage exactly when the remote system is
+having trouble, and an entity read before a slow call and written after it spans a needlessly wide
+optimistic-locking window. The two phases make the safe shape structural rather than a convention — remote
+work simply has no transaction to leak into, and as a bonus repeated ids within a burst collapse into one
+lookup, which is what makes catching up a long backlog fast.
 
-A `SimpleBatchedProcessingFeedHandler` processes the feed per batch, in **two phases**: `process` prepares the
+A `SimpleProcessingFeedHandler` processes the feed per batch, in **two phases**: `process` prepares the
 batch **outside** any transaction (collect, dedupe, look things up remotely — may be slow, may be repeated
 after a crash), `persist` writes the prepared effect **inside** the transaction that also advances the feed
 pointer (fast and local — no network calls here). The framework carries the intermediate state `P` between
@@ -94,7 +106,7 @@ the two, so your bean stays stateless.
 
 ```java
 @Component
-class MyEventFeedHandler implements SimpleBatchedProcessingFeedHandler<MyEvent, List<Asset>> {
+class MyEventFeedHandler implements SimpleProcessingFeedHandler<MyEvent, List<Asset>> {
 
     @Override
     public String getFeedId() {
@@ -115,8 +127,8 @@ class MyEventFeedHandler implements SimpleBatchedProcessingFeedHandler<MyEvent, 
 ```
 
 Note who chooses what: **you choose what a batch does** (`process`/`persist` — that is domain and belongs in
-code), **the operator chooses the size** (`processing.preferred-size` — tuning, and different per
-environment: the number of accepted entries at which a batch is processed).
+code), **the operator chooses the size** (`processing.max-size` — tuning, and different per
+environment: the maximum batch size, counted in accepted entries).
 
 A few properties you should know:
 
@@ -250,7 +262,7 @@ Per feed under `atomium.feeds.<feedId>` (map key = `getFeedId()`):
 | `query-interval` | `1m` | Poll frequency: the wait between the end of a successful run and the start of the next. |
 | `initial-feed-pointer.type` | — | Start position of a **new** feed: `oldest` (full history), `now` (only new events), or `pointer` (+ `page-link`). Only used as long as no pointer has been persisted yet. |
 | `backoff.initial-interval` / `.max-interval` / `.multiplier` | `1m` / `1h` / `2` | Exponential backoff on consecutive failed runs. |
-| `processing.preferred-size` | `100` | Only with a **`SimpleBatchedProcessingFeedHandler`**: the number of accepted entries at which a batch is processed. Set this on a feed with an `EntryFeedHandler` and startup fails (it processes per entry — the threshold there is always 1). |
+| `processing.max-size` | `100` | Only with a **`SimpleProcessingFeedHandler`**: the **maximum** batch size, counted in accepted entries — batches come out smaller when the safety net, the end of the feed, an interruption or a read failure wraps them up first. Set this on a feed with an `EntryFeedHandler` and startup fails (it processes per entry — the threshold there is always 1). |
 | `processing.max-uncommitted-pages` | `10` | The **safety net**: once this many pages have been read without a commit, every boundary asks the processing to wrap up, even if the batch isn't full. See [The safety net](#the-safety-net-processingmax-uncommitted-pages) above. |
 
 The HTTP client config (auth, timeouts, …) is environment-specific and doesn't belong here but in your

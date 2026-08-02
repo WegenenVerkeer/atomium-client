@@ -6,7 +6,7 @@ import be.wegenenverkeer.atomium.client.handler.FeedHandler;
 import be.wegenenverkeer.atomium.client.handler.PerFeedThreadExecutors;
 import be.wegenenverkeer.atomium.client.handler.ProcessResult;
 import be.wegenenverkeer.atomium.client.handler.ProcessingEntry;
-import be.wegenenverkeer.atomium.client.handler.SimpleBatchedProcessingFeedHandler;
+import be.wegenenverkeer.atomium.client.handler.SimpleProcessingFeedHandler;
 
 import be.wegenenverkeer.atomium.client.protocol.AtomiumEntry;
 import be.wegenenverkeer.atomium.client.protocol.FeedPageMetadata;
@@ -111,29 +111,29 @@ class FeedFactoryConfigurationTest {
     }
 
     /**
-     * The <em>configuration validation</em> (with the property name in the message): a {@code processing.preferred-size}
+     * The <em>configuration validation</em> (with the property name in the message): a {@code processing.max-size}
      * on a feed with an {@link EntryFeedHandler} is a configuration mistake — that handler processes per entry, so the threshold
      * is always 1. We reject the property fail-fast at startup instead of silently ignoring it. (Core additionally
      * asserts the same condition framework-neutrally; see {@code FeedRuntimeTest} in core.)
      */
     @Test
-    void aPreferredSizeOnAnEntryFeedHandlerFailsWithThePropertyName() {
+    void aMaxSizeOnAnEntryFeedHandlerFailsWithThePropertyName() {
         assertThatIllegalStateException()
                 .isThrownBy(() -> FeedFactory.validateProcessingConfig(
                         "feed", handler("feed"), new AtomiumFeedProperties.Processing(50, 10)))
-                .withMessageContaining("atomium.feeds.feed.processing.preferred-size")
+                .withMessageContaining("atomium.feeds.feed.processing.max-size")
                 .withMessageContaining("EntryFeedHandler");
     }
 
-    /** On a {@link SimpleBatchedProcessingFeedHandler} the property <em>is</em> meaningful. */
+    /** On a {@link SimpleProcessingFeedHandler} the property <em>is</em> meaningful. */
     @Test
-    void aPreferredSizeOnABatchedHandlerIsValid() {
+    void aMaxSizeOnAProcessingHandlerIsValid() {
         assertThatNoException().isThrownBy(() -> FeedFactory.validateProcessingConfig(
                 "feed", batchHandler("feed"), new AtomiumFeedProperties.Processing(50, 10)));
     }
 
-    private static SimpleBatchedProcessingFeedHandler<String, Integer> batchHandler(String feedId) {
-        return new SimpleBatchedProcessingFeedHandler<>() {
+    private static SimpleProcessingFeedHandler<String, Integer> batchHandler(String feedId) {
+        return new SimpleProcessingFeedHandler<>() {
             @Override
             public String getFeedId() {
                 return feedId;

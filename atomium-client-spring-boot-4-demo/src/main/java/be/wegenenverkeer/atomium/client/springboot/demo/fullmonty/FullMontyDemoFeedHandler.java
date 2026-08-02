@@ -10,8 +10,8 @@ import org.springframework.stereotype.Component;
 import java.time.OffsetDateTime;
 
 /**
- * The fully equipped demo feed ({@code full-monty}): an {@link EntryFeedHandler} — the typical case — that,
- * on top of the simple {@code SimpleFeedHandler}, shows everything else that is possible:
+ * The fully equipped demo feed ({@code full-monty}): an {@link EntryFeedHandler} that,
+ * on top of the simple {@code SimpleDemoFeedHandler}, shows everything else that is possible:
  *
  * <ul>
  *   <li>a <b>custom content type</b> ({@link MontyContent}) instead of a raw {@code JsonNode};</li>
@@ -26,12 +26,12 @@ import java.time.OffsetDateTime;
  * Because the {@code simple} feed polls the same in-memory demo feed and makes it grow with every poll, a
  * <b>backlog</b> is already waiting when you activate, and it gets processed immediately.
  *
- * <p>For batch processing (a {@code SimpleBatchedProcessingFeedHandler}) there is the separate {@code simple-batched} demo.
+ * <p>For batch processing (a {@code SimpleProcessingFeedHandler}) there is the separate {@code simple-processing} demo.
  */
 @Component
-public class FullMontyFeedHandler implements EntryFeedHandler<MontyContent> {
+public class FullMontyDemoFeedHandler implements EntryFeedHandler<MontyContent> {
 
-    private static final Logger LOG = LoggerFactory.getLogger(FullMontyFeedHandler.class);
+    private static final Logger LOG = LoggerFactory.getLogger(FullMontyDemoFeedHandler.class);
 
     @Override
     public String getFeedId() {

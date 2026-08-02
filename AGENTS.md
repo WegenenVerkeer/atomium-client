@@ -47,7 +47,7 @@ lock-step (see `VERSIONING.md`).
 - **Running the demo locally:** first `./mvnw install -DskipTests` (otherwise `spring-boot:run` picks up a stale
   lib jar from `.m2` → `NoClassDefFound`), then `./mvnw -pl atomium-client-spring-boot-4-demo spring-boot:run`.
   Metrics visible at `/management/prometheus` and `/management/metrics` (feed `simple` is active; `full-monty`
-  and `simple-batched` inactive, activate via admin).
+  and `simple-processing` inactive, activate via admin).
 - **Do not commit** unless explicitly asked; the developer reviews and commits themselves.
 
 ## Non-obvious whys (brief; details in the docs + javadoc)
@@ -80,10 +80,11 @@ lock-step (see `VERSIONING.md`).
 The heart is the **batch processing** and the **event model**; below is what you won't immediately derive from
 the code. See `DESIGN.md` for the class overview and the javadoc for the details.
 
-- **Two handler variants, one internal seam.** The developer implements `EntryFeedHandler` (per entry, the
-  common case) or `SimpleBatchedProcessingFeedHandler` (per batch, in two phases: `process` outside the
-  transaction, `persist` inside it). Both are internal implementations of the package-private **`FeedProcessor`**
-  seam (`EntryFeedProcessor` / `SimpleBatchedFeedProcessor`): one fresh processor per run receives the entries
+- **Two handler variants, one internal seam.** The developer implements `EntryFeedHandler` (per entry, for
+  self-contained events with local processing) or `SimpleProcessingFeedHandler` (per batch, in two
+  phases: `process` outside the transaction, `persist` inside it — for all processing that involves remote
+  work, also single-entity events). Both are internal implementations of the package-private **`FeedProcessor`**
+  seam (`EntryFeedProcessor` / `SimpleFeedProcessor`): one fresh processor per run receives the entries
   (`processEntry`, outside any transaction) and one checkpoint opportunity per boundary, with the strongest reason
   (`PAGE_BOUNDARY` / `WINDOW_EXHAUSTED` / `END_OF_FEED` / `INTERRUPTED` / `READ_FAILURE`), and answers with
   its state (*idle* / *buffering* / *ready*). The maintainer notes on the anticipated growth path (publishing the
@@ -156,8 +157,8 @@ the code. See `DESIGN.md` for the class overview and the javadoc for the details
   sees nothing. That fails **silently** in a plain unit test → the demo context test explicitly asserts that the
   listener is wired.
 - **Config** under `atomium.feeds.<id>.*`: `url`, `active-on-startup`, `query-interval`,
-  `initial-feed-pointer`, `backoff`, and `processing.{preferred-size, max-uncommitted-pages}`. A
-  `processing.preferred-size` on an `EntryFeedHandler` feed → **fail-fast at startup** (that handler
+  `initial-feed-pointer`, `backoff`, and `processing.{max-size, max-uncommitted-pages}`. A
+  `processing.max-size` on an `EntryFeedHandler` feed → **fail-fast at startup** (that handler
   processes per entry — the threshold there is always 1, so it would be a silent no-op).
 - **Visibility.** Most internal machinery is deliberately **package-private**; a few types are public solely
   because the `admin` subpackage, the demos, or a `@ConditionalOnMissingBean` override needs them. Keep new

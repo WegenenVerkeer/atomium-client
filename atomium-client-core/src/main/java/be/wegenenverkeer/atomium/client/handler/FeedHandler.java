@@ -4,10 +4,11 @@ package be.wegenenverkeer.atomium.client.handler;
  * The base SPI for consuming an Atomium feed. Do not implement this interface directly, but one of its
  * concrete variants; the framework sets up a feed consumer per handler:
  * <ul>
- *   <li>{@link EntryFeedHandler} — the common case: process the entries one by one.</li>
- *   <li>{@link SimpleBatchedProcessingFeedHandler} — process them per batch, in two phases (prepare outside
- *       the transaction, persist inside it), for a feed that produces events in bursts or processing that
- *       involves remote lookups.</li>
+ *   <li>{@link EntryFeedHandler} — process the entries one by one; for self-contained events with local
+ *       processing.</li>
+ *   <li>{@link SimpleProcessingFeedHandler} — process them per batch, in two phases (prepare outside
+ *       the transaction, persist inside it), for all processing that involves remote work — also
+ *       single-entity events — and for feeds that produce bursts.</li>
  * </ul>
  *
  * <p>Only {@link #getFeedId()} (plus the entry callback of the chosen variant) is mandatory; everything else has a

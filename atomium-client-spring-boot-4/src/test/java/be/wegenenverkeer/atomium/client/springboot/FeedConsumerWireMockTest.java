@@ -296,7 +296,7 @@ class FeedConsumerWireMockTest extends AbstractAtomiumFeedIT {
     }
 
     /**
-     * The {@link be.wegenenverkeer.atomium.client.handler.SimpleBatchedProcessingFeedHandler} tier: accepted
+     * The {@link be.wegenenverkeer.atomium.client.handler.SimpleProcessingFeedHandler} tier: accepted
      * entries are buffered up to the processing threshold and then processed in two phases — {@code process}
      * outside any transaction, {@code persist} inside the transaction that also advances the feed pointer.
      *

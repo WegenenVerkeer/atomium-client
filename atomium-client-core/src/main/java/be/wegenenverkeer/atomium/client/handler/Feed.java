@@ -39,7 +39,7 @@ public final class Feed<T> {
     private final List<FeedEventListener> listeners;
     private final Duration queryInterval;
     private final boolean activeOnStartup;
-    private final @Nullable Integer preferredProcessingSize;
+    private final @Nullable Integer maxProcessingSize;
     private final int maxUncommittedPages;
 
     private Feed(Builder<T> builder, Executor executor) {
@@ -55,7 +55,7 @@ public final class Feed<T> {
         this.listeners = List.copyOf(builder.listeners);
         this.queryInterval = builder.queryInterval;
         this.activeOnStartup = builder.activeOnStartup;
-        this.preferredProcessingSize = builder.preferredProcessingSize;
+        this.maxProcessingSize = builder.maxProcessingSize;
         this.maxUncommittedPages = builder.maxUncommittedPages;
     }
 
@@ -114,8 +114,8 @@ public final class Feed<T> {
     }
 
     /** The number of accepted entries at which a batch is processed, or {@code null} for the default. */
-    public @Nullable Integer preferredProcessingSize() {
-        return preferredProcessingSize;
+    public @Nullable Integer maxProcessingSize() {
+        return maxProcessingSize;
     }
 
     public int maxUncommittedPages() {
@@ -141,7 +141,7 @@ public final class Feed<T> {
         private final List<FeedEventListener> listeners = new ArrayList<>();
         private Duration queryInterval = Duration.ofMinutes(1);
         private boolean activeOnStartup = false;
-        private @Nullable Integer preferredProcessingSize;
+        private @Nullable Integer maxProcessingSize;
         private int maxUncommittedPages = FeedDefaults.MAX_UNCOMMITTED_PAGES;
 
         private Builder(String feedId, FeedHandler<T> handler, AtomiumClient atomiumClient,
@@ -239,16 +239,18 @@ public final class Feed<T> {
         }
 
         /**
-         * The number of accepted entries at which a batch is processed. Only meaningful with a
-         * {@link SimpleBatchedProcessingFeedHandler} (default: {@value FeedDefaults#PREFERRED_PROCESSING_SIZE});
+         * The <em>maximum</em> batch size, counted in accepted entries: a batch is processed as soon as this
+         * many are buffered, but ends up smaller whenever the safety net, the end of the feed, an
+         * interruption or a read failure wraps it up first. Only meaningful with a
+         * {@link SimpleProcessingFeedHandler} (default: {@value FeedDefaults#MAX_PROCESSING_SIZE});
          * set on an {@link EntryFeedHandler}, assembly fails fast.
          */
-        public Builder<T> preferredProcessingSize(@Nullable Integer preferredProcessingSize) {
-            if (preferredProcessingSize != null && preferredProcessingSize < 1) {
+        public Builder<T> maxProcessingSize(@Nullable Integer maxProcessingSize) {
+            if (maxProcessingSize != null && maxProcessingSize < 1) {
                 throw new IllegalArgumentException(
-                        "feed '%s': preferredProcessingSize must be at least 1, was %d".formatted(feedId, preferredProcessingSize));
+                        "feed '%s': maxProcessingSize must be at least 1, was %d".formatted(feedId, maxProcessingSize));
             }
-            this.preferredProcessingSize = preferredProcessingSize;
+            this.maxProcessingSize = maxProcessingSize;
             return this;
         }
 

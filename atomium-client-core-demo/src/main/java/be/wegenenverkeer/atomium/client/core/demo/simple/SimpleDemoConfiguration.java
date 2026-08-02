@@ -21,7 +21,7 @@ import tools.jackson.databind.json.JsonMapper;
 class SimpleDemoConfiguration {
 
     @Bean
-    FeedRuntime simpleFeedRuntime(SimpleFeedHandler handler, JsonMapper jsonMapper, DemoProperties properties) {
+    FeedRuntime simpleFeedRuntime(SimpleDemoFeedHandler handler, JsonMapper jsonMapper, DemoProperties properties) {
         AtomiumClient atomiumClient = DemoAtomiumClients.atomiumClient(handler.getFeedId(), properties.feedUrl());
         Feed<JsonNode> feed = Feed
                 .builder(handler.getFeedId(), handler, atomiumClient,

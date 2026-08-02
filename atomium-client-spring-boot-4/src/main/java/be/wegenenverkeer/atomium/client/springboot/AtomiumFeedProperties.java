@@ -1,7 +1,7 @@
 package be.wegenenverkeer.atomium.client.springboot;
 
 import be.wegenenverkeer.atomium.client.handler.EntryFeedHandler;
-import be.wegenenverkeer.atomium.client.handler.SimpleBatchedProcessingFeedHandler;
+import be.wegenenverkeer.atomium.client.handler.SimpleProcessingFeedHandler;
 import be.wegenenverkeer.atomium.client.handler.ExponentialFeedBackoffPolicy;
 import be.wegenenverkeer.atomium.client.handler.FeedDefaults;
 import be.wegenenverkeer.atomium.client.handler.FeedHandler;
@@ -29,7 +29,7 @@ import java.time.Duration;
  *                            expected (otherwise the feed fails at startup).
  * @param backoff             the backoff on consecutive failed runs (default: exponential
  *                            {@value Defaults#BACKOFF_INITIAL_INTERVAL} → … → {@value Defaults#BACKOFF_MAX_INTERVAL})
- * @param processing          the processing tuning; only meaningful with a {@link SimpleBatchedProcessingFeedHandler}
+ * @param processing          the processing tuning; only meaningful with a {@link SimpleProcessingFeedHandler}
  */
 public record AtomiumFeedProperties(
         @Nullable String url,
@@ -71,9 +71,11 @@ public record AtomiumFeedProperties(
      * <p>Both parameters are optional; empty = the lib's default (the {@code Feed} layer in core knows the
      * defaults, this config only passes on what is set explicitly).
      *
-     * @param preferredSize     the number of accepted entries at which a batch is processed;
-     *                          empty → {@value FeedDefaults#PREFERRED_PROCESSING_SIZE}.
-     *                          Only meaningful with a {@link SimpleBatchedProcessingFeedHandler}: if an
+     * @param maxSize     the <em>maximum</em> batch size, counted in accepted entries (a batch is processed
+     *                    at this size, or smaller when the safety net, the end of the feed, an interruption
+     *                    or a read failure wraps it up first);
+     *                          empty → {@value FeedDefaults#MAX_PROCESSING_SIZE}.
+     *                          Only meaningful with a {@link SimpleProcessingFeedHandler}: if an
      *                          {@link EntryFeedHandler} backs this feed, a value that is set deliberately fails at
      *                          startup (that handler processes per entry — a processing size would be silently ignored).
      * @param maxUncommittedPages the <b>safety net</b>: once this many pages have been read without a commit, every
@@ -85,14 +87,14 @@ public record AtomiumFeedProperties(
      *                          (commit per entry) this safety net never triggers.
      */
     public record Processing(
-            @Nullable Integer preferredSize,
+            @Nullable Integer maxSize,
             @Nullable Integer maxUncommittedPages
     ) {
 
         public Processing {
-            if (preferredSize != null && preferredSize < 1) {
+            if (maxSize != null && maxSize < 1) {
                 throw new IllegalArgumentException(
-                        "processing.preferred-size must be at least 1, was " + preferredSize);
+                        "processing.max-size must be at least 1, was " + maxSize);
             }
             if (maxUncommittedPages != null && maxUncommittedPages < 1) {
                 throw new IllegalArgumentException(

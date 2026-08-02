@@ -6,7 +6,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * The {@link FeedProcessor} of a {@link SimpleBatchedProcessingFeedHandler}: buffers accepted entries up to
+ * The {@link FeedProcessor} of a {@link SimpleProcessingFeedHandler}: buffers accepted entries up to
  * the processing threshold and then runs phase 1 ({@code process}, in the seam callback — outside any
  * transaction); the prepared {@code P} is held until the consumer opens the transaction and {@link #persist()}
  * runs phase 2. A partial batch is wrapped up the same way on {@link CheckpointReason#WINDOW_EXHAUSTED},
@@ -17,19 +17,19 @@ import java.util.List;
  * @param <C> the domain type of the entry content
  * @param <P> the prepared intermediate state of the handler
  */
-class SimpleBatchedFeedProcessor<C, P> implements FeedProcessor<C> {
+class SimpleFeedProcessor<C, P> implements FeedProcessor<C> {
 
-    private final SimpleBatchedProcessingFeedHandler<C, P> handler;
-    private final int preferredProcessingSize;
+    private final SimpleProcessingFeedHandler<C, P> handler;
+    private final int maxProcessingSize;
 
     private List<ProcessingEntry<C>> buffer = new ArrayList<>();
     private @Nullable Prepared<P> prepared;
     private int accepted;
     private int processed;
 
-    SimpleBatchedFeedProcessor(SimpleBatchedProcessingFeedHandler<C, P> handler, int preferredProcessingSize) {
+    SimpleFeedProcessor(SimpleProcessingFeedHandler<C, P> handler, int maxProcessingSize) {
         this.handler = handler;
-        this.preferredProcessingSize = preferredProcessingSize;
+        this.maxProcessingSize = maxProcessingSize;
     }
 
     @Override
@@ -39,7 +39,7 @@ class SimpleBatchedFeedProcessor<C, P> implements FeedProcessor<C> {
         }
         accepted++;
         buffer.add(entry);
-        if (buffer.size() < preferredProcessingSize) {
+        if (buffer.size() < maxProcessingSize) {
             return State.BUFFERING;
         }
         return process();

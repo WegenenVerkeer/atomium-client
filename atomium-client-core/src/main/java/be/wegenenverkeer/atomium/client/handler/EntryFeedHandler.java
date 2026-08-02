@@ -8,10 +8,13 @@ import be.wegenenverkeer.atomium.client.protocol.FeedPageMetadata;
  * framework commits the effect of {@link #onEntry} together with the advanced feedPointer in one transaction, so
  * that on a crash no processed event is lost and no committed event is offered twice.
  *
- * <p>This is the variant you want, unless per-entry processing does not fit: your feed produces events in
- * bursts faster than you can process them one by one, or the processing needs a slow preparation step that
- * does not belong inside a transaction (a remote lookup, say) — then implement
- * {@link SimpleBatchedProcessingFeedHandler}, which prepares outside the transaction and persists inside it.
+ * <p>The choice between the two variants hinges on <em>where the processing work happens</em>, not on how
+ * many entities an event concerns. This is the variant for events whose payload is self-contained and whose
+ * processing is local work (database writes). The moment processing involves <em>remote</em> work — the
+ * common feed shape "entity X changed, fetch its latest version" — implement
+ * {@link SimpleProcessingFeedHandler} instead, even though every event concerns a single entity: the
+ * remote calls move outside the transaction, repeated ids within a burst collapse into one lookup, and
+ * catching up a backlog goes per batch instead of per event.
  *
  * @param <C> the domain type of the entry content
  */

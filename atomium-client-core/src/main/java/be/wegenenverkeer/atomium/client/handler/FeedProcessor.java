@@ -7,20 +7,22 @@ package be.wegenenverkeer.atomium.client.handler;
 // 1. A handler that provides its own FeedProcessor, for full control over the processing:
 //
 //        public interface ProcessingFeedHandler<C> extends FeedHandler<C> {
-//            FeedProcessor<C> startRun(int preferredProcessingSize);
+//            FeedProcessor<C> feedProcessor(int maxProcessingSize);
 //        }
 //
-//    SimpleBatchedProcessingFeedHandler is then no more than the simple use case of that SPI:
+//    SimpleProcessingFeedHandler is then no more than the simple use case of that SPI:
 //
-//        public interface SimpleBatchedProcessingFeedHandler<C, P> extends ProcessingFeedHandler<C> {
-//            default FeedProcessor<C> startRun(int preferredProcessingSize) {
-//                return new SimpleBatchedFeedProcessor<>(this, preferredProcessingSize);
+//        public interface SimpleProcessingFeedHandler<C, P> extends ProcessingFeedHandler<C> {
+//            default FeedProcessor<C> feedProcessor(int maxProcessingSize) {
+//                return new SimpleFeedProcessor<>(this, maxProcessingSize);
 //            }
 //            // accepts / process / persist as today
 //        }
 //
-//    This is why the public tier is called *Simple*BatchedProcessingFeedHandler, and why FeedRuntime keeps
-//    the handler→processor switch in one place.
+//    Named as the factory it is ("give me your FeedProcessor") — when it is called is the framework's
+//    business, so its javadoc must state the contract the name no longer hints at: called at the start of
+//    every run, and it must return a fresh instance each time. This is why the public tier is called
+//    *Simple*ProcessingFeedHandler, and why FeedRuntime keeps the handler→processor switch in one place.
 //
 // 2. Partial checkpoints: a processor that answers READY but persists only up to an *earlier* entry.
 //    Example: entries A, B and C carry 700, 50 and 400 asset ids; at C the processor looks up the first

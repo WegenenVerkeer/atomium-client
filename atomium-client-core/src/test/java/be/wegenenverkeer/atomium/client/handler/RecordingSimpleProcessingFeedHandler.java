@@ -12,7 +12,7 @@ import java.util.function.Predicate;
 import java.util.stream.Collectors;
 
 /**
- * Test {@link SimpleBatchedProcessingFeedHandler}: records each {@code process} and {@code persist} call as one
+ * Test {@link SimpleProcessingFeedHandler}: records each {@code process} and {@code persist} call as one
  * line. The prepared state {@code P} is the formatted batch description, so a {@code persist(...)} line proves in a
  * single assert both <em>what</em> was batched and that {@code P} traveled intact from {@code process} to
  * {@code persist}.
@@ -23,7 +23,7 @@ import java.util.stream.Collectors;
  * ({@link #recordTransactionScope}) and a hook that runs when a given entry is offered to {@code accepts}
  * ({@link #whenOffered} — handy to force an interruption mid-page).
  */
-class RecordingSimpleBatchedFeedHandler implements SimpleBatchedProcessingFeedHandler<TestFeedEntry, String> {
+class RecordingSimpleProcessingFeedHandler implements SimpleProcessingFeedHandler<TestFeedEntry, String> {
 
     private final List<String> invocations = new CopyOnWriteArrayList<>();
     private volatile Predicate<TestFeedEntry> accept = content -> true;

@@ -81,7 +81,7 @@ class AtomiumFeedPropertiesTest {
         void lowerBoundIs1() {
             assertThatIllegalArgumentException()
                     .isThrownBy(() -> new Processing(0, null))
-                    .withMessageContaining("processing.preferred-size");
+                    .withMessageContaining("processing.max-size");
             assertThatIllegalArgumentException()
                     .isThrownBy(() -> new Processing(null, 0))
                     .withMessageContaining("processing.max-uncommitted-pages");

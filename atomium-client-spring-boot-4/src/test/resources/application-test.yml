@@ -12,7 +12,7 @@ atomium:
       query-interval: 1h
       initial-feed-pointer:
         type: oldest
-    # FooAppBatchFeedHandler (SimpleBatchedProcessingFeedHandler: two-phase processing + accepts)
+    # FooAppBatchFeedHandler (SimpleProcessingFeedHandler: two-phase processing + accepts)
     foo-app-batch:
       url: http://localhost:${wiremock.feed.port}/feed
       query-interval: 1h
@@ -20,7 +20,7 @@ atomium:
         type: oldest
       processing:
         # small threshold so the dedup/threshold scenarios stay short
-        preferred-size: 3
+        max-size: 3
     # FooAppBatchCapFeedHandler: the threshold is never reached, so only the page safety net can still flush
     foo-app-batch-cap:
       url: http://localhost:${wiremock.feed.port}/feed
@@ -28,7 +28,7 @@ atomium:
       initial-feed-pointer:
         type: oldest
       processing:
-        preferred-size: 100
+        max-size: 100
         max-uncommitted-pages: 2
     # FooAppEmptyPageFeedHandler
     foo-app-empty-page:

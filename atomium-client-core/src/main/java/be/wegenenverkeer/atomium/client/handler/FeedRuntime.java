@@ -47,7 +47,7 @@ public final class FeedRuntime {
         allListeners.addAll(feed.listeners());
         FeedEventListener listeners = new FeedEventListeners(allListeners);
         Supplier<FeedProcessor<T>> processors =
-                processorFor(feedId, feed.handler(), feed.preferredProcessingSize());
+                processorFor(feedId, feed.handler(), feed.maxProcessingSize());
         FeedConsumerImpl<T> consumer = new FeedConsumerImpl<>(feedId, feed.handler(), processors,
                 feed.maxUncommittedPages(), feed.atomiumClient(), feed.contentDecoder(),
                 feed.pointerRepository(), feed.transactions(), initialFeedPointer(feed), listeners);
@@ -86,33 +86,33 @@ public final class FeedRuntime {
      * runs).
      *
      * <p><b>Fail-fast at assembly</b> (twice): a {@link FeedHandler} that implements neither variant has no
-     * entry callback at all — that feed would silently do nothing. And a {@code preferredProcessingSize} on a
+     * entry callback at all — that feed would silently do nothing. And a {@code maxProcessingSize} on a
      * feed with an {@link EntryFeedHandler} is a configuration mistake (it processes per entry); we prefer
      * refusing it over silently ignoring it.
      */
     static <T> Supplier<FeedProcessor<T>> processorFor(
-            String feedId, FeedHandler<T> handler, @Nullable Integer preferredProcessingSize) {
+            String feedId, FeedHandler<T> handler, @Nullable Integer maxProcessingSize) {
 
         switch (handler) {
-            case SimpleBatchedProcessingFeedHandler<T, ?> batched -> {
-                int size = preferredProcessingSize != null
-                        ? preferredProcessingSize : FeedDefaults.PREFERRED_PROCESSING_SIZE;
-                return () -> new SimpleBatchedFeedProcessor<>(batched, size);
+            case SimpleProcessingFeedHandler<T, ?> simple -> {
+                int size = maxProcessingSize != null
+                        ? maxProcessingSize : FeedDefaults.MAX_PROCESSING_SIZE;
+                return () -> new SimpleFeedProcessor<>(simple, size);
             }
             case EntryFeedHandler<T> perEntry -> {
-                if (preferredProcessingSize != null) {
+                if (maxProcessingSize != null) {
                     // core assertion (framework-neutral); an assembly layer additionally validates this on its
                     // own configuration, in its own terminology — deliberately two checks, each with a different purpose
-                    throw new IllegalStateException(("feed '%s': a preferredProcessingSize is set, but handler %s "
+                    throw new IllegalStateException(("feed '%s': a maxProcessingSize is set, but handler %s "
                             + "is an EntryFeedHandler (processes per entry, the processing size is always 1). "
-                            + "Remove the preferredProcessingSize, or implement SimpleBatchedProcessingFeedHandler.")
+                            + "Remove the maxProcessingSize, or implement SimpleProcessingFeedHandler.")
                             .formatted(feedId, handler.getClass().getName()));
                 }
                 return () -> new EntryFeedProcessor<>(feedId, perEntry);
             }
             default -> throw new IllegalStateException(
                     ("feed '%s': handler %s implements only FeedHandler itself and thus has no entry callback; "
-                            + "implement EntryFeedHandler or SimpleBatchedProcessingFeedHandler")
+                            + "implement EntryFeedHandler or SimpleProcessingFeedHandler")
                             .formatted(feedId, handler.getClass().getName()));
         }
     }

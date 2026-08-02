@@ -15,7 +15,7 @@ for local experimenting only; **no Docker needed** (H2 in-memory).
 - **`fetch`** (`GET /rest/demo/fetch`) — the low-level **fetch API** in its pure form: reads the complete feed
   from the oldest page up to the head in one classic read loop and returns the entries. No persistence, no
   scheduling — every request reads everything again.
-- **`simple`** — the **simplest possible** handler integration (`SimpleFeedHandler`, an `EntryFeedHandler`
+- **`simple`** — the **simplest possible** handler integration (`SimpleDemoFeedHandler`, an `EntryFeedHandler`
   on a raw `JsonNode`): the assembly (`SimpleDemoConfiguration`) supplies the builder parameters, a
   start position and the poll settings; the building blocks are the defaults (in-memory pointers, no
   transactions). It is active and logs every event one by one.
@@ -24,9 +24,9 @@ for local experimenting only; **no Docker needed** (H2 in-memory).
   `FeedTransactions` (on Spring's `TransactionTemplate`), a custom backoff policy, the managed
   `PerFeedThreadExecutors` and extra `FeedEventListener`s. The handler is an `EntryFeedHandler` (the common
   case) with a **custom content DTO** (`MontyContent`), `accepts` filtering and `pushEntry`.
-- **`simple-batched`** — the simplest possible **batch processing**: a `SimpleBatchedProcessingFeedHandler`
-  on a raw `JsonNode` showing the two phases (`SimpleBatchedFeedHandler`); the assembly
-  (`SimpleBatchedDemoConfiguration`) is the minimal one plus the builder's two processing knobs.
+- **`simple-processing`** — the simplest possible **batch processing**: a `SimpleProcessingFeedHandler`
+  on a raw `JsonNode` showing the two phases (`SimpleProcessingDemoFeedHandler`); the assembly
+  (`SimpleProcessingDemoConfiguration`) is the minimal one plus the builder's two processing knobs.
 - The **`SimpleFeedScheduler`** (from core) polls the active feeds every `demo.query-interval`; the
   `Feeds` registry and the **`DemoControlEndpoint`** (`/rest/demo/feeds`) drive them.
 
@@ -43,7 +43,7 @@ Start `CoreDemoApplication` (e.g. from the IDE, or `mvn spring-boot:run`). All r
    exactly where it stopped (the `simple` feed does restart from scratch after an app restart — in-memory default).
 5. `POST /rest/demo/feeds/full-monty/push` with `{"aField": "recovered-042"}` — the `EntryPusher` building
    block: process a loose content item as if it had been on the feed.
-6. `PUT /rest/demo/feeds/simple-batched/activate` — the same backlog, but now processed **in batches**
+6. `PUT /rest/demo/feeds/simple-processing/activate` — the same backlog, but now processed **in batches**
    (visible in the logs).
 
 ## Start position of a new feed
