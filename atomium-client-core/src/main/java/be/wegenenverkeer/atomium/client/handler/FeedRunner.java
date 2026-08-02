@@ -172,7 +172,7 @@ public final class FeedRunner {
     /**
      * Mark the feed as desired-inactive; a run in flight, if any, stops after the next commit point.
      * Non-blocking (and therefore also safe from a listener callback on the feed thread); if you need to know that
-     * the run has actually stopped uses {@link #deactivateAndAwait}.
+     * the run has actually stopped, use {@link #deactivateAndAwait}.
      */
     public void deactivate() {
         active.set(false);

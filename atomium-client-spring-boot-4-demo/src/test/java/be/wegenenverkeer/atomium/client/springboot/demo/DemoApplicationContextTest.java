@@ -14,7 +14,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * Smoke test: loads the complete demo context (autoconfig + the in-memory security + the atomium wiring) against
- * a real postgres (testcontainers), and verifies that the {@code simple} and {@code full-monty} feed are
+ * a real postgres (testcontainers), and verifies that the {@code simple}, {@code simple-processing} and {@code full-monty} feeds are
  * registered. That tells us the app boots with only the narrow seam ({@link DemoFeedRestClientBuilders}).
  */
 @SpringBootTest

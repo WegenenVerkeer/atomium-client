@@ -256,7 +256,7 @@ class FeedConsumerImpl<T> implements FeedConsumer, EntryPusher {
          *       empty or entirely filtered-out stretch is not fetched again on every poll) — unless it is
          *       already where it should be (e.g. a 304): no needless writes;</li>
          *   <li>{@code BUFFERING} — a legitimate refusal: the pointer stays pinned. Declining the safety net
-         *       is logged once per exceedance episode; declining at {@code END_OF_FEED}/{@code INTERRUPTED}
+         *       is logged once per exceedance episode; declining at {@code END_OF_FEED}/{@code INTERRUPTED}/{@code READ_FAILURE}
          *       means the buffered work is discarded and re-read next run.</li>
          * </ul>
          */

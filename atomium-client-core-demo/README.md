@@ -22,9 +22,8 @@ for local experimenting only; **no Docker needed** (H2 in-memory).
 - **`full-monty`** — **all building blocks explicit** (`FullMontyDemoConfiguration`): a real JDBC
   `FeedPointerRepository` (`DemoJdbcFeedPointerRepository`, table `demo_feed_pointer` in H2), real
   `FeedTransactions` (on Spring's `TransactionTemplate`), a custom backoff policy, the managed
-  `PerFeedThreadExecutors` and extra `FeedEventListener`s. The handler is an `EntryFeedHandler` (the common
-  case) with a **custom content DTO** (`MontyContent`), `accepts` filtering and `pushEntry`.
-- **`simple-processing`** — the simplest possible **batch processing**: a `SimpleProcessingFeedHandler`
+  `PerFeedThreadExecutors` and extra `FeedEventListener`s. The handler is an `EntryFeedHandler` with a **custom content DTO** (`MontyContent`), `accepts` filtering and `pushEntry`.
+- **`simple-processing`** — the simplest possible **two-phase processing**: a `SimpleProcessingFeedHandler`
   on a raw `JsonNode` showing the two phases (`SimpleProcessingDemoFeedHandler`); the assembly
   (`SimpleProcessingDemoConfiguration`) is the minimal one plus the builder's two processing knobs.
 - The **`SimpleFeedScheduler`** (from core) polls the active feeds every `demo.query-interval`; the

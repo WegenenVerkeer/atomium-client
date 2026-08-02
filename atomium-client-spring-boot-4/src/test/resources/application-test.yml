@@ -21,7 +21,7 @@ atomium:
       processing:
         # small threshold so the dedup/threshold scenarios stay short
         max-size: 3
-    # FooAppBatchCapFeedHandler: the threshold is never reached, so only the page safety net can still flush
+    # FooAppBatchCapFeedHandler: the threshold is never reached, so only the page safety net can still wrap up a batch
     foo-app-batch-cap:
       url: http://localhost:${wiremock.feed.port}/feed
       query-interval: 1h

@@ -1,5 +1,5 @@
 demo:
-  # no web server in the test → both feeds inactive, so the scheduler ticks poll nothing
+  # no web server in the test → all feeds inactive, so the scheduler ticks poll nothing
   simple:
     active-on-startup: false
   full-monty:

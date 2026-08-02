@@ -113,7 +113,7 @@ public final class Feed<T> {
         return activeOnStartup;
     }
 
-    /** The number of accepted entries at which a batch is processed, or {@code null} for the default. */
+    /** The <em>maximum</em> batch size in accepted entries, or {@code null} for the default. */
     public @Nullable Integer maxProcessingSize() {
         return maxProcessingSize;
     }

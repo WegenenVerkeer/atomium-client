@@ -14,7 +14,7 @@ import static org.assertj.core.api.Assertions.assertThatNullPointerException;
 
 /**
  * The {@link Feed.Builder} validates fail-fast: a definition that cannot run may never become a {@link Feed}
- * (the most dangerous case — {@code maxUncommittedPages < 1} — would otherwise silently degrade to a flush on
+ * (the most dangerous case — {@code maxUncommittedPages < 1} — would otherwise silently degrade to a wrap-up on
  * every page boundary).
  */
 class FeedTest {

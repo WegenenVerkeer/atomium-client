@@ -106,7 +106,7 @@ One dependency — [`atomium-client-spring-boot-4`](atomium-client-spring-boot-4
 along transitively and auto-configures the complete consumer: polling, pointer persistence (JDBC), backoff,
 metrics (Micrometer, if present) and an optional admin endpoint. You only provide:
 
-1. an `EntryFeedHandler` bean — what to do with each event;
+1. a `FeedHandler` bean (`EntryFeedHandler` or `SimpleProcessingFeedHandler`) — what to do with each event;
 2. a `FeedRestClientBuilders` bean — how to reach the source feed;
 3. some config under `atomium.feeds.<feedId>`;
 4. the table `atomium_feed_pointer_v1` (e.g. via Flyway).

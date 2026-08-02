@@ -19,7 +19,7 @@ the generic lib with only the **narrow seam** — a single `FeedRestClientBuilde
   **`pushEntry`**. It also documents all per-feed properties (`application.yml`) and the customizer SPI
   (`FullMontyDemoConfiguration`). Activate it during the demo (`active-on-startup: true` or via the admin endpoint):
   because `simple` already made the same feed grow, a **backlog** is waiting that gets processed right away.
-- The **`simple-processing`** feed (also inactive by default) is the simplest possible **batch processing**: a
+- The **`simple-processing`** feed (also inactive by default) is the simplest possible **two-phase processing**: a
   `SimpleProcessingFeedHandler` on a raw `JsonNode` showing the two phases
   (`SimpleProcessingDemoFeedHandler`); the processing tuning lives under `atomium.feeds.simple-processing.processing.*`. Activate it
   and the backlog is visibly processed in batches.

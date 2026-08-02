@@ -13,7 +13,7 @@ of the suite.
    Independent of the versions of external dependencies.
 3. **Ports isolate the volatile part.** `atomium-client-core` has no external runtime coupling; all
    coupling lives in the thin adapters. If your stack is not supported, implement the port yourself
-   (`FeedHttpClient` / `FeedPageDecoder`) and does not need the adapter.
+   (`FeedHttpClient` / `FeedPageDecoder`) — you then do not need the adapter.
 
 ## Two kinds of dependency evolution
 
@@ -40,7 +40,7 @@ You add a second world only when there is real demand — in the meantime the po
 ## External versions (build)
 
 The baseline versions of the external libraries are pinned as explicit properties in the suite parent
-(`atomium/pom.xml`):
+(the root `pom.xml`):
 
 - `jackson.version` — the Jackson 3 version that `atomium-client-jackson-3` compiles against;
 - `spring.version` — the Spring minimum version (6.1.x) that `atomium-client-restclient` compiles against;

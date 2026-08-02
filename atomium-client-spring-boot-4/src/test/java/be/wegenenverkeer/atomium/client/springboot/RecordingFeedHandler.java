@@ -16,8 +16,8 @@ import java.util.concurrent.CopyOnWriteArrayList;
  * Test base class that records every handler callback in order, so a test can validate the exact invocation
  * sequence. Concrete subclasses are {@code @Component}s with their own {@code feedId}.
  *
- * <p>Only the <em>entry</em> callbacks live here: the lifecycle (page boundary, end of feed, interruption) is no
- * longer a concern of the handler SPI — it is observed via the {@link RecordingFeedEventListener}.
+ * <p>Only the <em>entry</em> callbacks live here: the lifecycle (page boundary, end of feed, interruption) is not
+ * a concern of the handler SPI — it is observed via the {@link RecordingFeedEventListener}.
  *
  * <p>Thread-safe ({@link CopyOnWriteArrayList}): in the scheduler IT the feed thread writes while the
  * test thread reads concurrently.

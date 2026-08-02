@@ -159,7 +159,7 @@ class FeedRunnerTest {
     void deactivateAndAwaitReturnsFalseWhenTheRunDoesNotReachItsCommitPoint() throws Exception {
         CountDownLatch runBusy = new CountDownLatch(1);
         CountDownLatch mayFinish = new CountDownLatch(1);
-        // a reader that has not yet reached its interruption check (e.g. a slow flush)
+        // a reader that has not yet reached its interruption check (e.g. a slow commit)
         FeedConsumer consumer = isInterrupted -> {
             runBusy.countDown();
             awaitLatch(mayFinish);

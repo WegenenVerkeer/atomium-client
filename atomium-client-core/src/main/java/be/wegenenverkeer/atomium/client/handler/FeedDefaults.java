@@ -9,7 +9,7 @@ package be.wegenenverkeer.atomium.client.handler;
 public final class FeedDefaults {
 
     /**
-     * The batch size of a {@link SimpleProcessingFeedHandler} without an explicit
+     * The <em>maximum</em> batch size (in accepted entries) of a {@link SimpleProcessingFeedHandler} without an explicit
      * {@link Feed#maxProcessingSize()}.
      */
     public static final int MAX_PROCESSING_SIZE = 100;
