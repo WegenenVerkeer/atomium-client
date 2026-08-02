@@ -58,7 +58,7 @@ Framework-independent Java library for consuming an Atomium feed: a low-level **
 - **FeedRunner** — the lifecycle of one feed: active/inactive, start/interrupt, the timing of the next run (`queryInterval` on success, backoff after failures), emits `runFailed`; triggered frequently by a scheduler.
 - **SimpleFeedScheduler** — bundled minimal scheduler (own daemon thread): one frequent tick (default every second) to `tryToStart()` of every feed; for apps without a framework scheduler (Spring Boot apps get the `FeedScheduler` from `-spring-boot-4`).
 - **FeedConsumer** / **FeedConsumerImpl** — reads the feed from the `FeedPointer` up to the head; manages the transactions + pointer commits (incl. the safety net) and emits all other events.
-- **FeedProcessor** — the internal processing seam: one fresh processor per run receives the entries and answers checkpoint opportunities (`PAGE_BOUNDARY`/`WINDOW_EXHAUSTED`/`END_OF_FEED`/`INTERRUPTED`) with idle/buffering/ready.
+- **FeedProcessor** — the internal processing seam: one fresh processor per run receives the entries and answers checkpoint opportunities (`PAGE_BOUNDARY`/`WINDOW_EXHAUSTED`/`END_OF_FEED`/`INTERRUPTED`/`READ_FAILURE`) with idle/buffering/ready.
 - **EntryFeedProcessor** / **SimpleBatchedFeedProcessor** — the two processor impls: per entry ready (commit per entry), and the two-phase batch buffer.
 - **FeedBackoffPolicy** / **ExponentialFeedBackoffPolicy** — how long the runner waits after consecutive failures.
 - **PerFeedThreadExecutors** — provides each feed its own daemon-thread executor (with clean shutdown).

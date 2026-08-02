@@ -10,9 +10,9 @@ import java.util.List;
  * the processing threshold and then runs phase 1 ({@code process}, in the seam callback — outside any
  * transaction); the prepared {@code P} is held until the consumer opens the transaction and {@link #persist()}
  * runs phase 2. A partial batch is wrapped up the same way on {@link CheckpointReason#WINDOW_EXHAUSTED},
- * {@link CheckpointReason#END_OF_FEED} and {@link CheckpointReason#INTERRUPTED}; on a plain
- * {@link CheckpointReason#PAGE_BOUNDARY} it keeps buffering (a batch may span pages — the pointer stays
- * pinned).
+ * {@link CheckpointReason#END_OF_FEED}, {@link CheckpointReason#INTERRUPTED} and
+ * {@link CheckpointReason#READ_FAILURE}; on a plain {@link CheckpointReason#PAGE_BOUNDARY} it keeps
+ * buffering (a batch may span pages — the pointer stays pinned).
  *
  * @param <C> the domain type of the entry content
  * @param <P> the prepared intermediate state of the handler
@@ -53,7 +53,7 @@ class SimpleBatchedFeedProcessor<C, P> implements FeedProcessor<C> {
         return switch (reason) {
             // a batch may span pages; only the safety net and the end of the run wrap up a partial batch
             case PAGE_BOUNDARY -> State.BUFFERING;
-            case WINDOW_EXHAUSTED, END_OF_FEED, INTERRUPTED -> process();
+            case WINDOW_EXHAUSTED, END_OF_FEED, INTERRUPTED, READ_FAILURE -> process();
         };
     }
 
