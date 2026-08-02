@@ -85,8 +85,8 @@ the code. See `DESIGN.md` for the class overview and the javadoc for the details
   transaction, `persist` inside it). Both are internal implementations of the package-private **`FeedProcessor`**
   seam (`EntryFeedProcessor` / `SimpleBatchedFeedProcessor`): one fresh processor per run receives the entries
   (`processEntry`, outside any transaction) and one checkpoint opportunity per boundary, with the strongest reason
-  (`PAGE_BOUNDARY` / `WINDOW_EXHAUSTED` / `END_OF_FEED` / `INTERRUPTED`), and answers with its state
-  (*idle* / *buffering* / *ready*). The maintainer notes on the anticipated growth path (publishing the
+  (`PAGE_BOUNDARY` / `WINDOW_EXHAUSTED` / `END_OF_FEED` / `INTERRUPTED` / `READ_FAILURE`), and answers with
+  its state (*idle* / *buffering* / *ready*). The maintainer notes on the anticipated growth path (publishing the
   processor tier, partial checkpoints, state across commits) sit as code comments on `FeedProcessor` and on the
   commit path in `FeedConsumerImpl` — read them before reshaping the seam.
 - **The processor owns the mutable state, not the bean.** The processor buffers the accepted entries (it also
@@ -96,8 +96,14 @@ the code. See `DESIGN.md` for the class overview and the javadoc for the details
   the count via `ProcessResult`) → processing should be idempotent.
 - **The processor answers, the consumer decides about the transaction.** *Buffering* as answer to an
   opportunity is a legitimate refusal — the framework never forces a wrap-up. Refusing the safety net is logged
-  once per exceedance episode; refusing at `END_OF_FEED`/`INTERRUPTED` means discard-and-redo (state lost,
-  next run re-reads from the pinned pointer).
+  once per exceedance episode; refusing at `END_OF_FEED`/`INTERRUPTED`/`READ_FAILURE` means discard-and-redo
+  (state lost, next run re-reads from the pinned pointer).
+- **A failing read still wraps up buffered work.** When the next page fetch or an entry decode fails, the
+  consumer offers one last `READ_FAILURE` opportunity before the run fails: work that is already in hand gets
+  committed instead of re-read (the safety net exists for crashes, not for a failing source). If that wrap-up
+  itself also fails, the processing failure is primary — it concerns the oldest events, the ones a retry hits
+  first — with the read failure attached as a suppressed exception (`wrapUpBeforeFailing` in
+  `FeedConsumerImpl`).
 - **Pointer promotion on a boundary.** A commit on a page/feed boundary writes the **page pointer**
   (`page.nextFeedPointer()`), never the entry-level pointer: the entry pointer re-fetches the same page with a
   filter, the page pointer jumps on with the etag. Commit the entry pointer on a boundary and every poll of a

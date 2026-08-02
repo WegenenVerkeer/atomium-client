@@ -40,14 +40,15 @@ package be.wegenenverkeer.atomium.client.handler;
 /**
  * <b>Framework-internal; not a developer SPI.</b> The processing engine behind the public handler tiers: one
  * fresh instance per run, fed the decoded entries one by one ({@link #processEntry}, outside any transaction) and
- * offered a checkpoint opportunity on every page boundary, when the safety net fires, at the end of the feed
- * and on a clean interruption ({@link #onCheckpointOpportunity}, with the {@link CheckpointReason reason}).
+ * offered a checkpoint opportunity on every page boundary, when the safety net fires, at the end of the feed,
+ * on a clean interruption and when reading the next entry fails ({@link #onCheckpointOpportunity}, with the
+ * {@link CheckpointReason reason}).
  *
  * <p>The processor answers with its overall {@link State}; the consumer translates that into what happens to
  * the transaction and the feed pointer. Answering {@link State#BUFFERING} to an opportunity is a legitimate
  * refusal — the framework never forces a wrap-up; refusing at {@link CheckpointReason#END_OF_FEED} /
- * {@link CheckpointReason#INTERRUPTED} means discard-and-redo (the state is lost and the next run re-reads
- * from the pinned pointer).
+ * {@link CheckpointReason#INTERRUPTED} / {@link CheckpointReason#READ_FAILURE} means discard-and-redo (the
+ * state is lost and the next run re-reads from the pinned pointer).
  *
  * <p>All callbacks run on the feed thread (single-threaded, no synchronization needed). The processor applies
  * its handler's {@code accepts} filter itself and keeps the {@link #accepted()} / {@link #processed()}
@@ -89,7 +90,14 @@ interface FeedProcessor<C> {
         END_OF_FEED,
 
         /** The run is being cleanly interrupted (deactivation/shutdown). */
-        INTERRUPTED
+        INTERRUPTED,
+
+        /**
+         * Reading the next entry failed (page fetch or content decode) and the run is about to fail. One
+         * last opportunity to wrap up what is already buffered — that work is in hand and processable, so
+         * committing it now beats re-reading it on the next run.
+         */
+        READ_FAILURE
     }
 
     /** The next entry is offered, outside any transaction. Slow work (phase 1) happens in here. */

@@ -1,5 +1,6 @@
 package be.wegenenverkeer.atomium.client.handler;
 
+import be.wegenenverkeer.atomium.client.exception.AtomiumHttpException;
 import be.wegenenverkeer.atomium.client.fetch.AtomiumClient;
 import be.wegenenverkeer.atomium.client.fetch.FakeFeedHttpClient;
 import be.wegenenverkeer.atomium.client.fetch.FeedPointer;
@@ -621,6 +622,78 @@ class FeedConsumerTest {
      * does not get processed, the feed pointer must <em>not</em> advance past that entry — otherwise it would be
      * silently skipped.
      */
+    /**
+     * A failing read (page fetch or decode) is not a crash: the events read so far are in hand and
+     * processable. The consumer therefore offers one last checkpoint opportunity ({@code READ_FAILURE})
+     * before the run fails, so buffered work is committed instead of re-read on the next run — the safety
+     * net exists for crashes, not for a failing source.
+     */
+    @Nested
+    class ReadFailure {
+
+        /** The fetch of the next page fails: the buffered batch is still wrapped up, then the run fails. */
+        @Test
+        void aFailingPageFetchStillWrapsUpTheBufferedBatch() {
+            // the middle page /1 is not registered → fetching it fails after page /0 is fully buffered
+            FeedRuntime runtime = runtime(batchHandler, new FakeFeedHttpClient().head("/2")
+                    .page("/0", resource("batchcap/0.json"))
+                    .page("/2", resource("batchcap/2.json")),
+                    feed -> feed.preferredProcessingSize(100));
+
+            consume(runtime);
+
+            assertThat(batchHandler.invocations()).containsExactly(
+                    "process(id-001=a, id-002=b)",
+                    "persist(id-001=a, id-002=b)");
+            assertThat(eventListener.pointerCommits()).containsExactly("lastEvent=/0#id-002 nextFetch=/1");
+            assertThat(eventListener.events()).endsWith("runFailed(1)");
+        }
+
+        /** A decode failure mid-page: the entries buffered before the poison entry are still committed. */
+        @Test
+        void aDecodeFailureStillWrapsUpTheEntriesBufferedBeforeIt() {
+            FeedRuntime runtime = runtime(batchHandler, new FakeFeedHttpClient().head("/2")
+                    .page("/0", resource("0-broken-entry.json"))
+                    .page("/2", resource("2-v1.json")),
+                    feed -> feed.preferredProcessingSize(100));
+
+            consume(runtime);
+
+            // id-001 is committed; the run fails on id-002 with its entry context intact
+            assertThat(batchHandler.invocations()).containsExactly(
+                    "process(id-001=fieldValue-1)",
+                    "persist(id-001=fieldValue-1)");
+            assertThat(eventListener.pointerCommits())
+                    .containsExactly("lastEvent=/0#id-001 nextFetch=/0?after=id-001");
+            assertThat(eventListener.failures()).singleElement().satisfies(failure -> {
+                assertThat(failure.entryId()).isEqualTo("id-002");
+                assertThat(failure.phase()).isEqualTo(FeedEntryPhase.DECODE);
+            });
+        }
+
+        /**
+         * The exceptional double failure: the wrap-up itself fails too. The processing failure is primary —
+         * it concerns the oldest events, the ones a retry hits first — and the read failure travels along
+         * as a suppressed exception. Nothing was committed.
+         */
+        @Test
+        void aFailingWrapUpMakesTheProcessingFailurePrimaryWithTheReadFailureSuppressed() {
+            batchHandler.failInPersist();
+            FeedRuntime runtime = runtime(batchHandler, new FakeFeedHttpClient().head("/2")
+                    .page("/0", resource("batchcap/0.json"))
+                    .page("/2", resource("batchcap/2.json")),
+                    feed -> feed.preferredProcessingSize(100));
+
+            consume(runtime);
+
+            assertThat(eventListener.pointerCommits()).isEmpty();
+            assertThat(transactions.rollbacks()).isEqualTo(1);
+            assertThat(eventListener.failures()).singleElement().satisfies(failure ->
+                    assertThat(failure.cause().getSuppressed()).singleElement()
+                            .isInstanceOf(AtomiumHttpException.class));
+        }
+    }
+
     @Nested
     class FailurePaths {
 

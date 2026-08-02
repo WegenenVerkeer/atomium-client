@@ -123,6 +123,9 @@ A few properties you should know:
 - Entries that `accepts` rejects do not enter the batch and **do not count toward the threshold**.
 - A **partial batch** is still wrapped up at the end of the feed (or on a clean interruption): a batch never
   survives a poll.
+- When **reading the next entry fails** (a page fetch or a decode), the buffered batch is also wrapped up
+  first — that work is in hand and processable — and only then does the run fail with the read failure. The
+  next run resumes after the committed work instead of re-reading it.
 - If `process` or `persist` throws, the run fails: rollback, the pointer stays put, and the whole batch is
   offered again on the next run. `process` must be able to cope with that — reads and idempotent calls are
   fine; non-idempotent side effects belong in `persist`.

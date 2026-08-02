@@ -80,7 +80,8 @@ class FeedConsumerImpl<T> implements FeedConsumer, EntryPusher {
      * Read the feed from the (persisted) feedPointer up to the head. Per page the entries are offered to the
      * {@link FeedProcessor} in read order; every boundary (page boundary, safety net, end of feed — also on a
      * 304 — and interruption) offers the processor one checkpoint opportunity, with the strongest applicable
-     * {@link CheckpointReason reason}.
+     * {@link CheckpointReason reason}. A failing read (page fetch or decode) offers one last opportunity
+     * before the run fails, so buffered work is committed instead of re-read (see {@code wrapUpBeforeFailing}).
      *
      * <p>The effect of the handler is committed inside one transaction together with the advanced feedPointer, so
      * that on a crash no processed event is lost and no event that was already committed is offered again.
@@ -163,7 +164,12 @@ class FeedConsumerImpl<T> implements FeedConsumer, EntryPusher {
         FeedRunResult read() {
             FeedPointer feedPointer = persistedPointer;
             while (true) {
-                FetchResult page = atomiumClient.fetch(feedPointer).orElse(null);
+                FetchResult page;
+                try {
+                    page = atomiumClient.fetch(feedPointer).orElse(null);
+                } catch (RuntimeException readFailure) {
+                    throw wrapUpBeforeFailing(readFailure);
+                }
                 if (page == null) {   // 304 Not Modified: nothing new since the previous poll
                     offerCheckpoint(CheckpointReason.END_OF_FEED);
                     listeners.feedNotModified(feedId);
@@ -198,7 +204,12 @@ class FeedConsumerImpl<T> implements FeedConsumer, EntryPusher {
 
         private void processEntry(FetchResult page, FetchEntry fetchEntry) {
             AtomiumEntry entry = fetchEntry.entry();
-            T content = decode(entry);
+            T content;
+            try {
+                content = decode(entry);
+            } catch (RuntimeException readFailure) {
+                throw wrapUpBeforeFailing(readFailure);
+            }
             read++;
             latestOfferedUpdated = latest(latestOfferedUpdated, entry.updated());
             State state = processor.processEntry(new ProcessingEntry<>(page.feedPageMetadata(), entry, content));
@@ -262,6 +273,24 @@ class FeedConsumerImpl<T> implements FeedConsumer, EntryPusher {
                     }
                 }
             }
+        }
+
+        /**
+         * Reading the next entry failed (page fetch or content decode): offer the processor one last
+         * checkpoint opportunity, so that work it already buffered is committed instead of re-read on the
+         * next run — the safety net exists for crashes, not for a failing source. The run still fails
+         * afterwards, with the read failure. If the wrap-up itself fails too, that processing failure is
+         * primary — it concerns the oldest events, the ones a retry hits first — and the read failure
+         * travels along as a suppressed exception.
+         */
+        private RuntimeException wrapUpBeforeFailing(RuntimeException readFailure) {
+            try {
+                offerCheckpoint(CheckpointReason.READ_FAILURE);
+            } catch (RuntimeException processingFailure) {
+                processingFailure.addSuppressed(readFailure);
+                return processingFailure;
+            }
+            return readFailure;
         }
 
         /** The prepared work and the pointer in one transaction; an exception rolls back and fails the run. */
