@@ -262,8 +262,8 @@ Per feed under `atomium.feeds.<feedId>` (map key = `getFeedId()`):
 | `query-interval` | `1m` | Poll frequency: the wait between the end of a successful run and the start of the next. |
 | `initial-feed-pointer.type` | — | Start position of a **new** feed: `oldest` (full history), `now` (only new events), or `pointer` (+ `page-link`). Only used as long as no pointer has been persisted yet. |
 | `backoff.initial-interval` / `.max-interval` / `.multiplier` | `1m` / `1h` / `2` | Exponential backoff on consecutive failed runs. |
-| `processing.max-size` | `100` | Only with a **`SimpleProcessingFeedHandler`**: the **maximum** batch size, counted in accepted entries — batches come out smaller when the safety net, the end of the feed, an interruption or a read failure wraps them up first. Set this on a feed with an `EntryFeedHandler` and startup fails (it processes per entry — the threshold there is always 1). |
-| `processing.max-uncommitted-pages` | `10` | The **safety net**: once this many pages have been read without a commit, every boundary asks the processing to wrap up, even if the batch isn't full. See [The safety net](#the-safety-net-processingmax-uncommitted-pages) above. |
+| `processing.max-size` | `100` | Only with a **`SimpleProcessingFeedHandler`**: the **maximum** batch size, counted in accepted entries — batches come out smaller when the safety net, the end of the feed, an interruption or a read failure wraps them up first. |
+| `processing.max-uncommitted-pages` | `10` | The **safety net**: once this many pages have been read without a commit, every boundary asks the processing to wrap up, even if the batch isn't full. See [The safety net](#the-safety-net-processingmax-uncommitted-pages) above. The whole `processing.*` group is only valid on a **`SimpleProcessingFeedHandler`** feed; set on any other handler, startup fails (it commits per entry — the threshold is always 1 and the safety net can never fire). |
 
 The HTTP client config (auth, timeouts, …) is environment-specific and doesn't belong here but in your
 `FeedRestClientBuilders`; unknown sub-properties under a feed are ignored during binding.

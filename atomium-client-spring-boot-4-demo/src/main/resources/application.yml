@@ -53,7 +53,7 @@ atomium:
         # Alternatives: 'now', 'oldest' or 'pointer' + page-link, or leave out once the feed has been warmed up
         type: oldest
 
-    # The fully equipped demo feed: an EntryFeedHandler (the typical case) with a custom content DTO
+    # The fully equipped demo feed: an EntryFeedHandler with a custom content DTO
     # (MontyContent), accepts and pushEntry. Also shows ALL available per-feed properties, each with a comment
     # (except processing.* — only meaningful with a SimpleProcessingFeedHandler, see simple-processing).
     # Deliberately inactive (active-on-startup: false) so you activate it yourself during the demo; the code

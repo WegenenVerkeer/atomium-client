@@ -112,20 +112,30 @@ class FeedFactoryConfigurationTest {
 
     /**
      * The <em>configuration validation</em> (with the property name in the message): a {@code processing.max-size}
-     * on a feed with an {@link EntryFeedHandler} is a configuration mistake — that handler processes per entry, so the threshold
-     * is always 1. We reject the property fail-fast at startup instead of silently ignoring it. (Core additionally
-     * asserts the same condition framework-neutrally; see {@code FeedRuntimeTest} in core.)
+     * on a feed whose handler is not a {@link SimpleProcessingFeedHandler} is a configuration mistake — that handler
+     * commits per entry, so the threshold is always 1 and the safety net can never fire. We reject the whole
+     * {@code processing.*} group fail-fast at startup instead of silently ignoring it. (Core additionally
+     * asserts the max-size condition framework-neutrally; see {@code FeedRuntimeTest} in core.)
      */
     @Test
     void aMaxSizeOnAnEntryFeedHandlerFailsWithThePropertyName() {
         assertThatIllegalStateException()
                 .isThrownBy(() -> FeedFactory.validateProcessingConfig(
-                        "feed", handler("feed"), new AtomiumFeedProperties.Processing(50, 10)))
-                .withMessageContaining("atomium.feeds.feed.processing.max-size")
-                .withMessageContaining("EntryFeedHandler");
+                        "feed", handler("feed"), new AtomiumFeedProperties.Processing(50, null)))
+                .withMessageContaining("atomium.feeds.feed.processing.*")
+                .withMessageContaining("SimpleProcessingFeedHandler");
     }
 
-    /** On a {@link SimpleProcessingFeedHandler} the property <em>is</em> meaningful. */
+    /** The whole group is rejected, so a lone safety-net setting on an entry handler fails too. */
+    @Test
+    void aMaxUncommittedPagesOnAnEntryFeedHandlerFailsAsWell() {
+        assertThatIllegalStateException()
+                .isThrownBy(() -> FeedFactory.validateProcessingConfig(
+                        "feed", handler("feed"), new AtomiumFeedProperties.Processing(null, 10)))
+                .withMessageContaining("atomium.feeds.feed.processing.*");
+    }
+
+    /** On a {@link SimpleProcessingFeedHandler} the properties <em>are</em> meaningful. */
     @Test
     void aMaxSizeOnAProcessingHandlerIsValid() {
         assertThatNoException().isThrownBy(() -> FeedFactory.validateProcessingConfig(
