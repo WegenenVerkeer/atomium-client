@@ -12,7 +12,9 @@ import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
 
 import java.time.Clock;
 import java.time.Duration;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.BooleanSupplier;
@@ -65,37 +67,51 @@ class FeedSchedulerTest {
 
     @Test
     void ownPoolIsCreatedOnStartAndShutDownOnStop() {
+        Set<Thread> preExisting = schedulerThreads();
         FeedScheduler scheduler = new FeedScheduler(new Feeds(List.of()));
         try {
             scheduler.start();
-            awaitUntil(() -> tickThreadRuns());
+            awaitUntil(() -> anyOwnThreadAlive(preExisting));
         } finally {
             scheduler.stop();
         }
-        awaitUntil(() -> !tickThreadRuns());
+        awaitUntil(() -> !anyOwnThreadAlive(preExisting));
     }
 
     @Test
     void ownPoolSurvivesALifecycleRestart() {
         // SmartLifecycle may cycle stop→start (context restart): its own pool must then start up again
+        Set<Thread> preExisting = schedulerThreads();
         FeedScheduler scheduler = new FeedScheduler(new Feeds(List.of()));
         try {
             scheduler.start();
-            awaitUntil(FeedSchedulerTest::tickThreadRuns);
+            awaitUntil(() -> anyOwnThreadAlive(preExisting));
             scheduler.stop();
-            awaitUntil(() -> !tickThreadRuns());
+            awaitUntil(() -> !anyOwnThreadAlive(preExisting));
 
             scheduler.start();
-            awaitUntil(FeedSchedulerTest::tickThreadRuns);
+            awaitUntil(() -> anyOwnThreadAlive(preExisting));
             assertThat(scheduler.isRunning()).isTrue();
         } finally {
             scheduler.stop();
         }
     }
 
-    private static boolean tickThreadRuns() {
-        return Thread.getAllStackTraces().keySet().stream()
-                .anyMatch(thread -> thread.getName().startsWith("atomium-scheduler-") && thread.isAlive());
+    /**
+     * All live scheduler-pool threads in the JVM. Cached Spring test contexts elsewhere in the suite
+     * legitimately keep their own {@link FeedScheduler} (and thus such a thread) alive for the rest of the
+     * JVM, so the lifecycle tests must only observe threads created <em>after</em> their own snapshot.
+     */
+    private static Set<Thread> schedulerThreads() {
+        Set<Thread> threads = new HashSet<>(Thread.getAllStackTraces().keySet());
+        threads.removeIf(thread -> !thread.getName().startsWith("atomium-scheduler-"));
+        return threads;
+    }
+
+    /** Is a scheduler thread alive that did not exist at the {@code preExisting} snapshot? */
+    private static boolean anyOwnThreadAlive(Set<Thread> preExisting) {
+        return schedulerThreads().stream()
+                .anyMatch(thread -> !preExisting.contains(thread) && thread.isAlive());
     }
 
     // these feeds always succeed, so the backoff/clock/listeners are trivial here
