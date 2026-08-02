@@ -10,7 +10,7 @@ import org.springframework.context.annotation.Configuration;
  * Purely for demonstration: one {@link FeedCustomizer} that — for the {@code full-monty} feed only — replaces
  * <em>every</em> per-feed variation point of {@link FeedConfiguration} with a replacement of its own. That way one class shows which
  * options the customizer SPI offers (besides the YAML properties on the feed and the handler callbacks in
- * {@link FullMontyFeedHandler}). The replacements here are deliberately no-ops: show the customizer SPI, not
+ * {@link FullMontyDemoFeedHandler}). The replacements here are deliberately no-ops: show the customizer SPI, not
  * actually use it.
  */
 @Configuration

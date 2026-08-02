@@ -44,7 +44,7 @@ class DemoApplicationContextTest {
     void contextLoadsAndRegistersAllFeeds() {
         assertThat(feeds.get("simple")).isNotNull();
         assertThat(feeds.get("full-monty")).isNotNull();
-        assertThat(feeds.get("simple-batched")).isNotNull();
+        assertThat(feeds.get("simple-processing")).isNotNull();
     }
 
     /**
@@ -66,6 +66,6 @@ class DemoApplicationContextTest {
                 org.springframework.boot.health.contributor.CompositeHealthContributor.class);
         assertThat(contributor.getContributor("simple")).isNotNull();
         assertThat(contributor.getContributor("full-monty")).isNotNull();
-        assertThat(contributor.getContributor("simple-batched")).isNotNull();
+        assertThat(contributor.getContributor("simple-processing")).isNotNull();
     }
 }

@@ -65,11 +65,11 @@ class FeedTest {
     }
 
     @Test
-    void preferredProcessingSizeMustBeAtLeastOneOrAbsent() {
+    void maxProcessingSizeMustBeAtLeastOneOrAbsent() {
         assertThatIllegalArgumentException()
-                .isThrownBy(() -> builder().preferredProcessingSize(0))
-                .withMessageContaining("preferredProcessingSize");
-        builder().preferredProcessingSize(null);   // absent is valid (framework default)
+                .isThrownBy(() -> builder().maxProcessingSize(0))
+                .withMessageContaining("maxProcessingSize");
+        builder().maxProcessingSize(null);   // absent is valid (framework default)
     }
 
     private static Feed.Builder<String> builder() {

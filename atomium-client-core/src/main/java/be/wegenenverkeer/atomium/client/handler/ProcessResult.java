@@ -3,8 +3,8 @@ package be.wegenenverkeer.atomium.client.handler;
 import org.jspecify.annotations.Nullable;
 
 /**
- * The result of {@link SimpleBatchedProcessingFeedHandler#process}: the prepared intermediate state {@code P}
- * that the framework carries into {@link SimpleBatchedProcessingFeedHandler#persist}, plus optionally the
+ * The result of {@link SimpleProcessingFeedHandler#process}: the prepared intermediate state {@code P}
+ * that the framework carries into {@link SimpleProcessingFeedHandler#persist}, plus optionally the
  * batch's contribution to the {@code processed} counter.
  *
  * <p>{@code processed} is a <em>free measure of realised work</em> — the handler chooses its meaning. Unlike

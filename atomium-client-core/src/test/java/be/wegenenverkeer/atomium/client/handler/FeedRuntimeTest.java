@@ -15,21 +15,21 @@ import static org.assertj.core.api.Assertions.assertThatNoException;
 class FeedRuntimeTest {
 
     /**
-     * A {@code preferredProcessingSize} on a feed with an {@link EntryFeedHandler} is a configuration mistake — it
+     * A {@code maxProcessingSize} on a feed with an {@link EntryFeedHandler} is a configuration mistake — it
      * processes per entry, so the threshold is always 1. We reject it fail-fast during assembly instead of silently
      * ignoring it.
      */
     @Test
-    void aPreferredProcessingSizeOnAnEntryFeedHandlerFailsFast() {
+    void aMaxProcessingSizeOnAnEntryFeedHandlerFailsFast() {
         assertThatIllegalStateException()
                 .isThrownBy(() -> FeedRuntime.processorFor("feed", handler("feed"), 50))
-                .withMessageContaining("preferredProcessingSize")
+                .withMessageContaining("maxProcessingSize")
                 .withMessageContaining("EntryFeedHandler");
     }
 
-    /** A {@link SimpleBatchedProcessingFeedHandler} without an explicit threshold gets the framework default (100). */
+    /** A {@link SimpleProcessingFeedHandler} without an explicit threshold gets the framework default (100). */
     @Test
-    void aBatchedHandlerWithoutConfigGetsTheDefaultThreshold() {
+    void aProcessingHandlerWithoutConfigGetsTheDefaultThreshold() {
         assertThatNoException().isThrownBy(() -> FeedRuntime.processorFor(
                 "feed", batchHandler("feed"), null));
     }
@@ -44,8 +44,8 @@ class FeedRuntimeTest {
                 .withMessageContaining("entry callback");
     }
 
-    private static SimpleBatchedProcessingFeedHandler<String, Integer> batchHandler(String feedId) {
-        return new SimpleBatchedProcessingFeedHandler<>() {
+    private static SimpleProcessingFeedHandler<String, Integer> batchHandler(String feedId) {
+        return new SimpleProcessingFeedHandler<>() {
             @Override
             public String getFeedId() {
                 return feedId;

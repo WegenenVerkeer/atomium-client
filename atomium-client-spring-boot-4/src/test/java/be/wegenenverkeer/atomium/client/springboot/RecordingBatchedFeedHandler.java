@@ -2,7 +2,7 @@ package be.wegenenverkeer.atomium.client.springboot;
 
 import be.wegenenverkeer.atomium.client.handler.ProcessResult;
 import be.wegenenverkeer.atomium.client.handler.ProcessingEntry;
-import be.wegenenverkeer.atomium.client.handler.SimpleBatchedProcessingFeedHandler;
+import be.wegenenverkeer.atomium.client.handler.SimpleProcessingFeedHandler;
 import be.wegenenverkeer.atomium.client.protocol.AtomiumEntry;
 import be.wegenenverkeer.atomium.client.protocol.FeedPageMetadata;
 
@@ -14,19 +14,19 @@ import java.util.function.Predicate;
 import java.util.stream.Collectors;
 
 /**
- * Test base class for a {@link SimpleBatchedProcessingFeedHandler}: deduplicates on {@code aField} (the
+ * Test base class for a {@link SimpleProcessingFeedHandler}: deduplicates on {@code aField} (the
  * "entity" of the test feed) in {@code process} — reporting its own processed count, like an application
  * would — and records every {@code process} and {@code persist} call as a single line. The prepared state
  * {@code P} is the formatted batch description, so a {@code persist(...)} line pins down in one assert what
  * was processed, in which order, and that {@code P} traveled intact between the two phases.
  *
- * <p>The <em>batch size</em> comes from the config ({@code processing.preferred-size}) and drives the
+ * <p>The <em>batch size</em> comes from the config ({@code processing.max-size}) and drives the
  * framework threshold — which doubles as proof that that property really works. The {@code accepts} filter and
  * deliberate failures in either phase ({@link #failInProcess()} / {@link #failInPersist()}) are configurable
  * per test.
  */
 public abstract class RecordingBatchedFeedHandler
-        implements SimpleBatchedProcessingFeedHandler<FooAppFeedEntry, String> {
+        implements SimpleProcessingFeedHandler<FooAppFeedEntry, String> {
 
     private final List<String> invocations = new CopyOnWriteArrayList<>();
     private volatile Predicate<FooAppFeedEntry> accept = content -> true;

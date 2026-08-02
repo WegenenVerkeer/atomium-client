@@ -9,10 +9,10 @@ package be.wegenenverkeer.atomium.client.handler;
 public final class FeedDefaults {
 
     /**
-     * The batch size of a {@link SimpleBatchedProcessingFeedHandler} without an explicit
-     * {@link Feed#preferredProcessingSize()}.
+     * The batch size of a {@link SimpleProcessingFeedHandler} without an explicit
+     * {@link Feed#maxProcessingSize()}.
      */
-    public static final int PREFERRED_PROCESSING_SIZE = 100;
+    public static final int MAX_PROCESSING_SIZE = 100;
 
     /** The safety net {@link Feed#maxUncommittedPages()}: ask for a wrap-up after this many pages without a commit. */
     public static final int MAX_UNCOMMITTED_PAGES = 10;

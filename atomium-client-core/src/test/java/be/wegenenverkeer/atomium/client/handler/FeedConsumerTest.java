@@ -57,7 +57,7 @@ class FeedConsumerTest {
             value -> MAPPER.readValue(value, TestFeedEntry.class);
 
     private final RecordingEntryFeedHandler handler = new RecordingEntryFeedHandler();
-    private final RecordingSimpleBatchedFeedHandler batchHandler = new RecordingSimpleBatchedFeedHandler();
+    private final RecordingSimpleProcessingFeedHandler batchHandler = new RecordingSimpleProcessingFeedHandler();
     private final RecordingFeedEventListener eventListener = new RecordingFeedEventListener();
     private final InterruptingFeedEventListener interruptingListener = new InterruptingFeedEventListener();
     private final RecordingFeedTransactions transactions = new RecordingFeedTransactions();
@@ -241,8 +241,8 @@ class FeedConsumerTest {
     }
 
     /**
-     * The {@link SimpleBatchedProcessingFeedHandler} tier: accepted entries are buffered up to the processing
-     * threshold ({@code preferredProcessingSize}) and then processed in two phases — {@code process} outside any
+     * The {@link SimpleProcessingFeedHandler} tier: accepted entries are buffered up to the processing
+     * threshold ({@code maxProcessingSize}) and then processed in two phases — {@code process} outside any
      * transaction, {@code persist} inside the transaction that also advances the feed pointer.
      *
      * <p>The batch feed: page {@code /0} carries id-001=alfa, id-002=beta, id-003=alfa, id-004=gamma,
@@ -427,7 +427,7 @@ class FeedConsumerTest {
             FeedRuntime runtime = runtime(batchHandler, new FakeFeedHttpClient().head("/1")
                             .page("/0", resource("batch/0.json"))
                             .page("/1", resource("batch/1.json"), "\"v1\""),
-                    feed -> feed.preferredProcessingSize(100));
+                    feed -> feed.maxProcessingSize(100));
 
             consume(runtime);   // run 1: one batch, wrapped up and committed on the feed boundary
             eventListener.reset();
@@ -481,7 +481,7 @@ class FeedConsumerTest {
         @Test
         void theBatchTierWrapsUpWhenTheWindowIsExhausted() {
             FeedRuntime runtime = runtime(batchHandler, safetyNetFeed(),
-                    feed -> feed.preferredProcessingSize(100).maxUncommittedPages(2));
+                    feed -> feed.maxProcessingSize(100).maxUncommittedPages(2));
 
             consume(runtime);
 
@@ -638,7 +638,7 @@ class FeedConsumerTest {
             FeedRuntime runtime = runtime(batchHandler, new FakeFeedHttpClient().head("/2")
                     .page("/0", resource("batchcap/0.json"))
                     .page("/2", resource("batchcap/2.json")),
-                    feed -> feed.preferredProcessingSize(100));
+                    feed -> feed.maxProcessingSize(100));
 
             consume(runtime);
 
@@ -655,7 +655,7 @@ class FeedConsumerTest {
             FeedRuntime runtime = runtime(batchHandler, new FakeFeedHttpClient().head("/2")
                     .page("/0", resource("0-broken-entry.json"))
                     .page("/2", resource("2-v1.json")),
-                    feed -> feed.preferredProcessingSize(100));
+                    feed -> feed.maxProcessingSize(100));
 
             consume(runtime);
 
@@ -682,7 +682,7 @@ class FeedConsumerTest {
             FeedRuntime runtime = runtime(batchHandler, new FakeFeedHttpClient().head("/2")
                     .page("/0", resource("batchcap/0.json"))
                     .page("/2", resource("batchcap/2.json")),
-                    feed -> feed.preferredProcessingSize(100));
+                    feed -> feed.maxProcessingSize(100));
 
             consume(runtime);
 
@@ -863,8 +863,8 @@ class FeedConsumerTest {
          */
         @Test
         void theProcessedCounterIsAFreeMeasureAndMayExceedAccepted() {
-            SimpleBatchedProcessingFeedHandler<TestFeedEntry, String> countingEntities =
-                    new SimpleBatchedProcessingFeedHandler<>() {
+            SimpleProcessingFeedHandler<TestFeedEntry, String> countingEntities =
+                    new SimpleProcessingFeedHandler<>() {
                         @Override
                         public String getFeedId() {
                             return "feed";
@@ -880,7 +880,7 @@ class FeedConsumerTest {
                         public void persist(String prepared) {
                         }
                     };
-            FeedRuntime runtime = runtime(countingEntities, batchFeed(), feed -> feed.preferredProcessingSize(3));
+            FeedRuntime runtime = runtime(countingEntities, batchFeed(), feed -> feed.maxProcessingSize(3));
 
             consume(runtime);
 
@@ -1010,8 +1010,8 @@ class FeedConsumerTest {
                 .page("/2", resource("batchcap/2.json"));
     }
 
-    private FeedRuntime batchRuntime(int preferredProcessingSize) {
-        return runtime(batchHandler, batchFeed(), feed -> feed.preferredProcessingSize(preferredProcessingSize));
+    private FeedRuntime batchRuntime(int maxProcessingSize) {
+        return runtime(batchHandler, batchFeed(), feed -> feed.maxProcessingSize(maxProcessingSize));
     }
 
     private FeedRuntime runtime(FeedHandler<TestFeedEntry> feedHandler, FakeFeedHttpClient source) {

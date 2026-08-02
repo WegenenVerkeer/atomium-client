@@ -14,7 +14,7 @@ import java.time.Duration;
  * @param queryInterval the poll frequency of the feeds (short, so the demo stays lively)
  * @param simple        the config of the {@code simple} feed
  * @param fullMonty     the config of the {@code full-monty} feed
- * @param simpleBatched the config of the {@code simple-batched} feed
+ * @param simpleProcessing the config of the {@code simple-processing} feed
  */
 @ConfigurationProperties("demo")
 public record DemoProperties(
@@ -22,7 +22,7 @@ public record DemoProperties(
         @DefaultValue("5s") Duration queryInterval,
         @DefaultValue Simple simple,
         @DefaultValue FullMonty fullMonty,
-        @DefaultValue SimpleBatched simpleBatched
+        @DefaultValue SimpleProcessing simpleProcessing
 ) {
 
     public record Simple(@DefaultValue("true") boolean activeOnStartup) {
@@ -31,9 +31,9 @@ public record DemoProperties(
     public record FullMonty(@DefaultValue("false") boolean activeOnStartup) {
     }
 
-    public record SimpleBatched(
+    public record SimpleProcessing(
             @DefaultValue("false") boolean activeOnStartup,
-            @DefaultValue("5") int preferredProcessingSize,
+            @DefaultValue("5") int maxProcessingSize,
             @DefaultValue("10") int maxUncommittedPages
     ) {
     }

@@ -31,7 +31,7 @@ import java.util.concurrent.atomic.AtomicLong;
  * building block and <em>every</em> knob of the builder — the mirror image of the minimal
  * {@code SimpleDemoConfiguration}. The implementations are deliberately thin; the point is to show which
  * building blocks exist and where they plug in. (The builder's two batch knobs belong to a
- * {@code SimpleBatchedProcessingFeedHandler} — see the {@code simple-batched} assembly.)
+ * {@code SimpleProcessingFeedHandler} — see the {@code simple-processing} assembly.)
  */
 @Configuration
 class FullMontyDemoConfiguration {
@@ -45,7 +45,7 @@ class FullMontyDemoConfiguration {
     }
 
     @Bean
-    FeedRuntime fullMontyFeedRuntime(FullMontyFeedHandler handler, JsonMapper jsonMapper, DemoProperties properties,
+    FeedRuntime fullMontyFeedRuntime(FullMontyDemoFeedHandler handler, JsonMapper jsonMapper, DemoProperties properties,
                                      JdbcClient jdbcClient, PlatformTransactionManager transactionManager,
                                      PerFeedThreadExecutors executors) {
         String feedId = handler.getFeedId();

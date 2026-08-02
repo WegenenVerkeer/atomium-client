@@ -33,10 +33,10 @@ demo:
     # deliberately inactive: activate it during the demo (PUT /rest/demo/feeds/full-monty/activate);
     # by then the simple feed has already made the source feed grow → a backlog that gets processed immediately
     active-on-startup: false
-  simple-batched:
+  simple-processing:
     # also inactive: activate it during the demo — the backlog then visibly gets processed in batches
     active-on-startup: false
     # the batch is processed at this many accepted entries
-    preferred-processing-size: 5
+    max-processing-size: 5
     # safety net: ask the processing to wrap up after this many pages without a commit
     max-uncommitted-pages: 10

@@ -13,9 +13,9 @@ import tools.jackson.databind.JsonNode;
  * The active demo feed ({@code simple}): consumes the in-memory {@link DemoFeedEndpoint} and logs every event.
  */
 @Component
-public class SimpleFeedHandler implements EntryFeedHandler<JsonNode> {
+public class SimpleDemoFeedHandler implements EntryFeedHandler<JsonNode> {
 
-    private static final Logger LOG = LoggerFactory.getLogger(SimpleFeedHandler.class);
+    private static final Logger LOG = LoggerFactory.getLogger(SimpleDemoFeedHandler.class);
 
     @Override
     public String getFeedId() {

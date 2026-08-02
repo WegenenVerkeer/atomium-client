@@ -83,11 +83,12 @@ You can find more examples in `be.wegenenverkeer.atomium.client.fetch.AtomiumCli
 
 If you prefer to have the feed processed declaratively, you implement only a **`FeedHandler`**:
 
-- **`EntryFeedHandler`** — process the entries one by one (the common case);
-- **`SimpleBatchedProcessingFeedHandler`** — process them per batch, in two phases: `process` prepares the
+- **`EntryFeedHandler`** — process the entries one by one; for events whose payload is self-contained and
+  whose processing is local work;
+- **`SimpleProcessingFeedHandler`** — process them per batch, in two phases: `process` prepares the
   batch outside the transaction (collect, dedupe, look things up remotely), `persist` writes the prepared
-  effect inside the transaction that also advances the feed pointer. For feeds that deliver bursts, and for
-  processing that looks entries up in bulk against a remote API.
+  effect inside the transaction that also advances the feed pointer. For all processing that involves
+  remote work — also when every event concerns a single entity — and for feeds that deliver bursts.
 
 You bundle the handler with the building blocks into a **`Feed`** (via the builder) and let
 **`FeedRuntime`** assemble the machinery from it: walking the feed up to the head, buffering and batching,

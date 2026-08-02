@@ -27,10 +27,10 @@ class CoreDemoApplicationContextTest {
     @Test
     void contextLoadsAndAllFeedsAreAssembled() {
         assertThat(feeds.all()).extracting(feed -> feed.feedId())
-                .containsExactlyInAnyOrder("full-monty", "simple", "simple-batched");
+                .containsExactlyInAnyOrder("full-monty", "simple", "simple-processing");
         assertThat(feeds.get("simple").runner().isActive()).isFalse();      // test profile: inactive
         assertThat(feeds.get("full-monty").runner().isActive()).isFalse();
-        assertThat(feeds.get("simple-batched").runner().isActive()).isFalse();
+        assertThat(feeds.get("simple-processing").runner().isActive()).isFalse();
         assertThat(scheduler).isNotNull();
     }
 }

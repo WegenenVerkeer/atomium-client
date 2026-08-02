@@ -1,8 +1,8 @@
-package be.wegenenverkeer.atomium.client.core.demo.simplebatched;
+package be.wegenenverkeer.atomium.client.springboot.demo.simpleprocessing;
 
 import be.wegenenverkeer.atomium.client.handler.ProcessResult;
 import be.wegenenverkeer.atomium.client.handler.ProcessingEntry;
-import be.wegenenverkeer.atomium.client.handler.SimpleBatchedProcessingFeedHandler;
+import be.wegenenverkeer.atomium.client.handler.SimpleProcessingFeedHandler;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -11,25 +11,29 @@ import tools.jackson.databind.JsonNode;
 import java.util.List;
 
 /**
- * The simplest possible batch demo ({@code simple-batched}): a {@link SimpleBatchedProcessingFeedHandler} on a
+ * The simplest possible batch demo ({@code simple-processing}): a {@link SimpleProcessingFeedHandler} on a
  * raw {@code JsonNode}, showing the two phases — {@code process} prepares the batch outside the transaction (in
  * a real app: collect ids and look them up remotely), {@code persist} writes the prepared result inside the
- * transaction that also advances the feed pointer. The batch size comes from the assembly
- * ({@code demo.simple-batched.preferred-processing-size}).
+ * transaction that also advances the feed pointer.
  *
- * <p>It is deliberately <em>inactive</em>: activate it during the demo
- * ({@code PUT /rest/demo/feeds/simple-batched/activate}) — because the {@code simple} feed has meanwhile made the
- * same demo feed grow, a backlog is already waiting, which you then immediately see being processed in batches in
- * the logs.
+ * <p><b>Expect varying batch sizes in the logs.</b> {@code processing.max-size}
+ * ({@code atomium.feeds.simple-processing.*}) is only the <em>maximum</em>, and it counts <em>accepted</em>
+ * entries. A batch is wrapped up by whichever comes first: the maximum, the safety net
+ * ({@code processing.max-uncommitted-pages}), the end of the feed, an interruption, or a read failure — so
+ * the tail of a backlog and a quiet feed produce partial batches by design.
+ *
+ * <p>In {@code application.yml} it is deliberately <em>inactive</em>: activate it during the demo (admin
+ * endpoint) — because the {@code simple} feed has meanwhile made the same demo feed grow, a backlog is already
+ * waiting, which you then immediately see being processed in batches in the logs.
  */
 @Component
-public class SimpleBatchedFeedHandler implements SimpleBatchedProcessingFeedHandler<JsonNode, List<String>> {
+public class SimpleProcessingDemoFeedHandler implements SimpleProcessingFeedHandler<JsonNode, List<String>> {
 
-    private static final Logger LOG = LoggerFactory.getLogger(SimpleBatchedFeedHandler.class);
+    private static final Logger LOG = LoggerFactory.getLogger(SimpleProcessingDemoFeedHandler.class);
 
     @Override
     public String getFeedId() {
-        return "simple-batched";
+        return "simple-processing";
     }
 
     /** Phase 1, outside the transaction: prepare the batch (in a real app: collect, dedupe, look up remotely). */
