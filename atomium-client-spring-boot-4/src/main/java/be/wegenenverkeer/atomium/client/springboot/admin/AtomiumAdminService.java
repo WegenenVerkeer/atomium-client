@@ -163,15 +163,15 @@ public class AtomiumAdminService {
      * within a transaction); the {@code AtomiumAdminService} itself knows neither the decoder nor the handler.
      *
      * @throws AtomiumUnknownFeedException  if the feed does not exist
-     * @throws AtomiumAdminValidationException if the handler does not support push
-     *                                        (the default {@link be.wegenenverkeer.atomium.client.handler.FeedHandler#pushEntry})
+     * @throws AtomiumAdminValidationException if the handler does not support push (it does not implement
+     *                                        {@link be.wegenenverkeer.atomium.client.handler.FeedPusher})
      */
     public void pushEntry(String feedId, String rawContent) {
         try {
             runtime(feedId).pusher().pushEntry(rawContent);
         } catch (UnsupportedOperationException e) {
             throw new AtomiumAdminValidationException(
-                    "Feed '%s' does not support push: the handler does not override pushEntry.".formatted(feedId));
+                    "Feed '%s' does not support push: the handler does not implement FeedPusher.".formatted(feedId));
         }
     }
 

@@ -939,20 +939,25 @@ class FeedConsumerTest {
     @Nested
     class Push {
 
+        /** A handler that supports push declares it by implementing {@link FeedPusher} next to its variant. */
+        class PushableHandler extends RecordingEntryFeedHandler implements FeedPusher<TestFeedEntry> {
+
+            final List<String> pushes = new ArrayList<>();
+
+            @Override
+            public void pushEntry(TestFeedEntry content) {
+                pushes.add("%s (inTransaction=%s)".formatted(content.aField(), transactions.isInTransaction()));
+            }
+        }
+
         @Test
         void decodesAndInvokesTheHandlerWithinATransaction() {
-            List<String> pushes = new ArrayList<>();
-            RecordingEntryFeedHandler pushable = new RecordingEntryFeedHandler() {
-                @Override
-                public void pushEntry(TestFeedEntry content) {
-                    pushes.add("%s (inTransaction=%s)".formatted(content.aField(), transactions.isInTransaction()));
-                }
-            };
+            PushableHandler pushable = new PushableHandler();
             FeedRuntime runtime = runtime(pushable, completeFeed());
 
             runtime.pusher().pushEntry("{\"aField\": \"recovered-042\"}");
 
-            assertThat(pushes).containsExactly("recovered-042 (inTransaction=true)");
+            assertThat(pushable.pushes).containsExactly("recovered-042 (inTransaction=true)");
             assertThat(transactions.commits()).isEqualTo(1);
             // a push is not a feed entry: no events and no pointer commit
             assertThat(eventListener.events()).isEmpty();
@@ -961,29 +966,24 @@ class FeedConsumerTest {
 
         @Test
         void unreadableContentThrowsAndRollsBackWithoutTouchingTheHandler() {
-            List<String> pushes = new ArrayList<>();
-            RecordingEntryFeedHandler pushable = new RecordingEntryFeedHandler() {
-                @Override
-                public void pushEntry(TestFeedEntry content) {
-                    pushes.add(content.aField());
-                }
-            };
+            PushableHandler pushable = new PushableHandler();
             FeedRuntime runtime = runtime(pushable, completeFeed());
 
             assertThatThrownBy(() -> runtime.pusher().pushEntry("this is not json"))
                     .isInstanceOf(RuntimeException.class);
 
-            assertThat(pushes).isEmpty();
+            assertThat(pushable.pushes).isEmpty();
             assertThat(transactions.rollbacks()).isEqualTo(1);
         }
 
-        /** Without a {@code pushEntry} override a handler does not support push (the default throws). */
+        /** A handler that does not implement {@link FeedPusher} does not support push. */
         @Test
-        void withoutOverrideTheHandlerDoesNotSupportPush() {
+        void aHandlerThatDoesNotImplementFeedPusherDoesNotSupportPush() {
             FeedRuntime runtime = runtime(handler, completeFeed());
 
             assertThatThrownBy(() -> runtime.pusher().pushEntry("{\"aField\": \"x\"}"))
-                    .isInstanceOf(UnsupportedOperationException.class);
+                    .isInstanceOf(UnsupportedOperationException.class)
+                    .hasMessageContaining("implement FeedPusher");
         }
     }
 

@@ -81,7 +81,7 @@ class MyEventFeedHandler implements EntryFeedHandler<MyEvent> {
 | `onEntry(pageMetadata, entry, content)` | yes (`EntryFeedHandler`) | For each event, in read order (oldest first). Its effect is committed in one transaction together with the advanced feed pointer. |
 | `process(entries)` / `persist(prepared)` | yes (`SimpleProcessingFeedHandler`) | Per batch, in two phases — see below. |
 | `accepts(pageMetadata, entry, content)` | no | Is this entry relevant? `false` → the framework ignores it entirely and simply advances the pointer past it. Default: everything is relevant. |
-| `pushEntry(content)` | no (opt-in) | Process an item **as if** it were on the feed (via the admin endpoint); unsupported by default. |
+| `pushEntry(content)` | no (opt-in, via `FeedPusher`) | Process an item **as if** it were on the feed (via the admin endpoint). Implement the separate `FeedPusher<C>` interface next to the handler variant; without it, push is unsupported. |
 
 The handler is **pure domain** (identity + callbacks) and **stateless**: the framework owns the buffer and hands the
 callback everything it needs. Infrastructure config happens elsewhere (see below).
