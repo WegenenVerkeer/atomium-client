@@ -157,9 +157,10 @@ the code. See `DESIGN.md` for the class overview and the javadoc for the details
   sees nothing. That fails **silently** in a plain unit test → the demo context test explicitly asserts that the
   listener is wired.
 - **Config** under `atomium.feeds.<id>.*`: `url`, `active-on-startup`, `query-interval`,
-  `initial-feed-pointer`, `backoff`, and `processing.{max-size, max-uncommitted-pages}`. A
-  `processing.max-size` on an `EntryFeedHandler` feed → **fail-fast at startup** (that handler
-  processes per entry — the threshold there is always 1, so it would be a silent no-op).
+  `initial-feed-pointer`, `backoff`, and `processing.{max-size, max-uncommitted-pages}`. The whole
+  `processing.*` group is only valid on a `SimpleProcessingFeedHandler` feed; set on any other handler →
+  **fail-fast at startup** (it commits per entry — the threshold is always 1 and the safety net can never
+  fire, so it would be a silent no-op).
 - **Visibility.** Most internal machinery is deliberately **package-private**; a few types are public solely
   because the `admin` subpackage, the demos, or a `@ConditionalOnMissingBean` override needs them. Keep new
   internal stuff package-private. In **core**, public concrete classes are **final unless extension is an

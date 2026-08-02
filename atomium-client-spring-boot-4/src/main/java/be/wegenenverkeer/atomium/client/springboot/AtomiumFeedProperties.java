@@ -69,22 +69,21 @@ public record AtomiumFeedProperties(
      * but the <em>size</em> is a tuning parameter that differs per environment.
      *
      * <p>Both parameters are optional; empty = the lib's default (the {@code Feed} layer in core knows the
-     * defaults, this config only passes on what is set explicitly).
+     * defaults, this config only passes on what is set explicitly). The whole group is only meaningful with a
+     * {@link SimpleProcessingFeedHandler}; on any other handler (which commits per entry, so the threshold is
+     * always 1 and the safety net can never fire) a set value deliberately fails at startup instead of being
+     * silently ignored.
      *
      * @param maxSize     the <em>maximum</em> batch size, counted in accepted entries (a batch is processed
      *                    at this size, or smaller when the safety net, the end of the feed, an interruption
      *                    or a read failure wraps it up first);
      *                          empty → {@value FeedDefaults#MAX_PROCESSING_SIZE}.
-     *                          Only meaningful with a {@link SimpleProcessingFeedHandler}: if an
-     *                          {@link EntryFeedHandler} backs this feed, a value that is set deliberately fails at
-     *                          startup (that handler processes per entry — a processing size would be silently ignored).
      * @param maxUncommittedPages the <b>safety net</b>: once this many pages have been read without a commit, every
      *                          boundary asks the processing to wrap up (even a partial batch);
      *                          empty → {@value FeedDefaults#MAX_UNCOMMITTED_PAGES}.
      *                          Without this, a heavily filtering feed would rarely reach its threshold:
      *                          the feed pointer then stays pinned, there is no intermediate progress, and a crash has
-     *                          to re-fetch an unbounded number of pages. With an {@link EntryFeedHandler}
-     *                          (commit per entry) this safety net never triggers.
+     *                          to re-fetch an unbounded number of pages.
      */
     public record Processing(
             @Nullable Integer maxSize,

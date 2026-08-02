@@ -1,6 +1,6 @@
 package be.wegenenverkeer.atomium.client.springboot;
 
-import be.wegenenverkeer.atomium.client.handler.EntryFeedHandler;
+import be.wegenenverkeer.atomium.client.handler.SimpleProcessingFeedHandler;
 import be.wegenenverkeer.atomium.client.handler.ExponentialFeedBackoffPolicy;
 import be.wegenenverkeer.atomium.client.handler.Feed;
 import be.wegenenverkeer.atomium.client.handler.FeedBackoffPolicy;
@@ -185,18 +185,21 @@ public class FeedFactory {
     }
 
     /**
-     * A {@code processing.max-size} on a feed with an {@link EntryFeedHandler} is a configuration mistake —
-     * that handler processes per entry, so the threshold is always 1. We reject the property fail-fast at startup
-     * instead of silently ignoring it.
+     * The whole {@code processing.*} group is only meaningful with a {@link SimpleProcessingFeedHandler}: any
+     * other handler commits per entry, so the threshold is always 1 and the safety net can never fire — a
+     * configured value would be a silent no-op. We reject fail-fast at startup instead.
      */
     static void validateProcessingConfig(String feedId, FeedHandler<?> handler,
                                          AtomiumFeedProperties.Processing processing) {
-        // configuration validation, with the property name in the message; core additionally asserts the same
+        // configuration validation, with the property names in the message; core additionally asserts the same
         // condition framework-neutrally — deliberately two checks, each with a different purpose
-        if (processing.maxSize() != null && handler instanceof EntryFeedHandler<?>) {
-            throw new IllegalStateException(("'atomium.feeds.%s.processing.max-size' is set, but handler %s "
-                    + "is an EntryFeedHandler (processes per entry, the processing size is always 1). Remove the "
-                    + "property, or implement SimpleProcessingFeedHandler.")
+        if (handler instanceof SimpleProcessingFeedHandler<?, ?>) {
+            return;
+        }
+        if (processing.maxSize() != null || processing.maxUncommittedPages() != null) {
+            throw new IllegalStateException(("'atomium.feeds.%s.processing.*' is set, but handler %s is not a "
+                    + "SimpleProcessingFeedHandler (it commits per entry, so a processing size and the safety "
+                    + "net are meaningless). Remove the properties, or implement SimpleProcessingFeedHandler.")
                     .formatted(feedId, handler.getClass().getName()));
         }
     }
