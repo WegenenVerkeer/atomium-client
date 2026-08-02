@@ -22,8 +22,9 @@ import java.util.concurrent.CopyOnWriteArrayList;
  * <p>Thread-safe ({@link CopyOnWriteArrayList}): in the scheduler IT the feed thread writes while the
  * test thread reads concurrently.
  *
- * <p>Push is deliberately <em>not</em> supported here (the default {@link FeedHandler#pushEntry} throws); a
- * subclass that wants to test push ({@link FooAppFeedHandler}) overrides {@code pushEntry} itself.
+ * <p>Push is deliberately <em>not</em> supported here (this class does not implement
+ * {@link be.wegenenverkeer.atomium.client.handler.FeedPusher}); a subclass that wants to test push
+ * ({@link FooAppFeedHandler}) implements it itself.
  */
 public abstract class RecordingFeedHandler implements EntryFeedHandler<FooAppFeedEntry> {
 
@@ -43,7 +44,7 @@ public abstract class RecordingFeedHandler implements EntryFeedHandler<FooAppFee
         invocations.add("onEntry(%s, %s, %s)".formatted(page(pageMetadata), entry.id(), content.aField()));
     }
 
-    /** Records a pushed content item; only usable by subclasses that override push. */
+    /** Records a pushed content item; only usable by subclasses that implement FeedPusher. */
     protected void recordPush(FooAppFeedEntry content) {
         invocations.add("pushEntry(%s)".formatted(content.aField()));
     }

@@ -12,7 +12,8 @@ package be.wegenenverkeer.atomium.client.handler;
  * </ul>
  *
  * <p>Only {@link #getFeedId()} (plus the entry callback of the chosen variant) is mandatory; everything else has a
- * sensible default. It is deliberately an interface (with default methods) and not an abstract class, so the lib
+ * sensible default. Support for <em>push</em> (processing an item via the admin endpoint as if it were on the
+ * feed) is a separate opt-in capability: implement {@link FeedPusher} next to the handler variant. It is deliberately an interface (with default methods) and not an abstract class, so the lib
  * does not claim the user's only superclass. The handler is <em>pure domain</em> (identity + callbacks):
  * infrastructure config (HTTP client, decoder, executor, …) lives in the {@link Feed}, not here.
  *
@@ -36,25 +37,4 @@ public interface FeedHandler<C> {
      * {@code "the-server-application"} or {@code "the-server-application-feed-a"} for multiple feeds from the same source.
      */
     String getFeedId();
-
-    /**
-     * Process a content item <em>as if</em> it appeared as an entry on the feed (e.g. to correct a failure of the
-     * source application via the admin endpoint without that application having to release a fix).
-     *
-     * <p>Push is <em>opt-in</em>: by default this method throws an {@link UnsupportedOperationException} (which the
-     * admin endpoint translates into a 400). A handler that wants to support push overrides this method
-     * deliberately — unlike the regular entry callback there is no
-     * {@link be.wegenenverkeer.atomium.client.protocol.AtomiumEntry} or
-     * {@link be.wegenenverkeer.atomium.client.protocol.FeedPageMetadata} available here (the item was never really on
-     * the feed), so the handler only has to be able to process the {@code content} itself.
-     *
-     * <p><b>Threading:</b> a push runs on the calling (admin request) thread, <em>not</em> on the feed thread,
-     * and can therefore coincide with a running run of the same handler. Since the handler is supposed to be stateless
-     * anyway, that is not a problem — but do not count on push and the regular processing callbacks never running
-     * concurrently.
-     */
-    default void pushEntry(C content) {
-        throw new UnsupportedOperationException(
-                "this handler does not support pushing entries; override pushEntry(C) to support it");
-    }
 }

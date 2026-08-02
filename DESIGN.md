@@ -33,7 +33,7 @@ Framework-independent Java library for consuming an Atomium feed: a low-level **
 
 ### The handler API — what the developer implements (SPI) (`client.handler`)
 
-- **FeedHandler** — the base: only `getFeedId()` (+ opt-in `pushEntry()` for a push). Implement one of the two variants (each with an opt-in `accepts()` to filter):
+- **FeedHandler** — the base: only `getFeedId()`. Implement one of the two variants (each with an opt-in `accepts()` to filter):
 - **EntryFeedHandler** — processes the entries **one by one** (`onEntry`); for self-contained events with local processing.
 - **SimpleProcessingFeedHandler** — processes them **per batch, in two phases**: `process` (outside the transaction: collect, dedupe, look up) and `persist` (inside it, atomically with the feed pointer); for burst feeds and processing with remote lookups.
 - **ProcessingEntry** — one offered entry: `FeedPageMetadata` + `AtomiumEntry` + decoded content.
@@ -48,7 +48,8 @@ Framework-independent Java library for consuming an Atomium feed: a low-level **
 - **FeedPointerRepository** — port for the pointer persistence; **InMemoryFeedPointerRepository** is the non-persistent builder default (tests/demos).
 - **FeedRuntime** — assembles the running machinery from a `Feed` (runner + consumer + pusher); the per-feed entry point for scheduler and management tooling.
 - **Feeds** — the registry of all `FeedRuntime`s (lookup by feedId).
-- **EntryPusher** — process a loose content item as if it were on the feed (troubleshooting/repair).
+- **FeedPusher** — opt-in capability of a handler: implement it (next to the variant) to support push.
+- **EntryPusher** — internal port that processes a loose content item as if it were on the feed (troubleshooting/repair); delegates to the handler's `FeedPusher`.
 - **LoggingFeedEventListener** — the bundled `FeedEventListener` (logs the events).
 
 ### The handler API — the run pipeline (framework, internal)

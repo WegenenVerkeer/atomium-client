@@ -323,7 +323,7 @@ class AtomiumAdminRestTest {
                     .body(new FooAppFeedEntry("pushed"))
                     .exchange().expectStatus().isOk();
 
-            // the content is decoded and passed to the handler (via FeedHandler.pushEntry → onEntry)
+            // the content is decoded and passed to the handler (via FeedPusher.pushEntry)
             assertThat(handler.invocations()).containsExactly("pushEntry(pushed)");
         }
     }
@@ -388,7 +388,7 @@ class AtomiumAdminRestTest {
 
         @Test
         void push_ifHandlerDoesNotSupportPush() {
-            // the handler behind OTHER_FEED (foo-app-empty-page) does not override pushEntry → the default throws
+            // the handler behind OTHER_FEED (foo-app-empty-page) does not implement FeedPusher →
             // UnsupportedOperationException → 400 instead of a hidden NPE.
             admin.post().uri("/rest/atomium/feed/{id}/push", OTHER_FEED)
                     .body(new FooAppFeedEntry("x")).exchange().expectStatus().isBadRequest();

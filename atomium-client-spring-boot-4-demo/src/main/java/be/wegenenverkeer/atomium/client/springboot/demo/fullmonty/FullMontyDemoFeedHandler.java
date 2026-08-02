@@ -1,6 +1,7 @@
 package be.wegenenverkeer.atomium.client.springboot.demo.fullmonty;
 
 import be.wegenenverkeer.atomium.client.handler.EntryFeedHandler;
+import be.wegenenverkeer.atomium.client.handler.FeedPusher;
 import be.wegenenverkeer.atomium.client.protocol.AtomiumEntry;
 import be.wegenenverkeer.atomium.client.protocol.FeedPageMetadata;
 import org.slf4j.Logger;
@@ -29,7 +30,7 @@ import java.time.OffsetDateTime;
  * <p>For batch processing (a {@code SimpleProcessingFeedHandler}) there is the separate {@code simple-processing} demo.
  */
 @Component
-public class FullMontyDemoFeedHandler implements EntryFeedHandler<MontyContent> {
+public class FullMontyDemoFeedHandler implements EntryFeedHandler<MontyContent>, FeedPusher<MontyContent> {
 
     private static final Logger LOG = LoggerFactory.getLogger(FullMontyDemoFeedHandler.class);
 

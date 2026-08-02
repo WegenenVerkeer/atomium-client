@@ -60,15 +60,21 @@ class FeedConsumerImpl<T> implements FeedConsumer, EntryPusher {
 
     /**
      * Process a raw content item as if it had been on the feed: decode it and offer it (inside one transaction,
-     * just like the normal processing) to {@link FeedHandler#pushEntry}. Does <em>not</em> advance the feed pointer
-     * (the item was not really on the feed) and deliberately <em>bypasses the processor</em>: a push is not a
-     * feed entry and therefore does not belong in a batch.
+     * just like the normal processing) to the handler's {@link FeedPusher#pushEntry}. Does <em>not</em> advance
+     * the feed pointer (the item was not really on the feed) and deliberately <em>bypasses the processor</em>:
+     * a push is not a feed entry and therefore does not belong in a batch.
      */
     @Override
     public void pushEntry(String rawContent) {
+        if (!(handler instanceof FeedPusher)) {
+            throw new UnsupportedOperationException(
+                    "this handler does not support pushing entries; implement FeedPusher to support it");
+        }
+        @SuppressWarnings("unchecked")   // FeedPusher's contract: C is the handler's own content type
+        FeedPusher<T> pusher = (FeedPusher<T>) handler;
         transactions.inTransactionWithoutResult(() -> {
             T content = feedContentDecoder.readFeedContent(rawContent);
-            handler.pushEntry(content);
+            pusher.pushEntry(content);
         });
     }
 
