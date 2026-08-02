@@ -10,12 +10,12 @@ PUT http://localhost:14220/atomium-client-core-demo/rest/demo/feeds/full-monty/a
 ### Deactivate the full-monty feed (a run in progress stops after the next commit point)
 PUT http://localhost:14220/atomium-client-core-demo/rest/demo/feeds/full-monty/deactivate
 
-### Activate the simple-batched feed (processes the backlog in batches)
-PUT http://localhost:14220/atomium-client-core-demo/rest/demo/feeds/simple-batched/activate
+### Activate the simple-processing feed (processes the backlog in batches)
+PUT http://localhost:14220/atomium-client-core-demo/rest/demo/feeds/simple-processing/activate
 Content-Type: application/json
 
-### Deactivate the simple-batched feed
-PUT http://localhost:14220/atomium-client-core-demo/rest/demo/feeds/simple-batched/deactivate
+### Deactivate the simple-processing feed
+PUT http://localhost:14220/atomium-client-core-demo/rest/demo/feeds/simple-processing/deactivate
 Content-Type: application/json
 
 ### Deactivate/activate the simple feed

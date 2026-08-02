@@ -4,7 +4,7 @@ import be.wegenenverkeer.atomium.client.protocol.AtomiumEntry;
 import be.wegenenverkeer.atomium.client.protocol.FeedPageMetadata;
 
 /**
- * The typical {@link FeedHandler}: process the feed entries <em>one by one</em>, in read order. For each entry the
+ * The {@link FeedHandler} that processes the feed entries <em>one by one</em>, in read order. For each entry the
  * framework commits the effect of {@link #onEntry} together with the advanced feedPointer in one transaction, so
  * that on a crash no processed event is lost and no committed event is offered twice.
  *

@@ -13,7 +13,7 @@ import java.util.function.BooleanSupplier;
 public interface FeedConsumer {
 
     /**
-     * Read the feed from the (persisted) pointer up to the head. After every commit point (per entry and per page)
+     * Read the feed from the (persisted) pointer up to the head. After every commit point (per entry, per wrapped-up batch or on a boundary)
      * {@code isInterrupted} is consulted; if it is {@code true}, the consumer stops cleanly. Because the
      * pointer has already been persisted at that point, the next run simply resumes where this one stopped.
      */

@@ -77,7 +77,7 @@ atomium:
         max-interval: 1h       # upper bound on the wait time (default 1h)
         multiplier: 2          # growth factor per failure (default 2)
 
-    # The simplest possible batch demo: a SimpleProcessingFeedHandler on a raw JsonNode (SimpleProcessingDemoFeedHandler) with
+    # The simplest possible two-phase processing demo: a SimpleProcessingFeedHandler on a raw JsonNode (SimpleProcessingDemoFeedHandler) with
     # the two phases (process outside the transaction, persist inside it). Also inactive: activate it during the demo — the backlog that 'simple'
     # meanwhile made grow then immediately becomes visible as it gets processed in batches.
     simple-processing:
@@ -85,7 +85,7 @@ atomium:
       active-on-startup: false
       initial-feed-pointer:
         type: oldest
-      # processing tuning (only meaningful with a SimpleProcessingFeedHandler; on an EntryFeedHandler max-size fails fast)
+      # processing tuning (only meaningful with a SimpleProcessingFeedHandler; on any other handler the whole processing.* group fails fast)
       processing:
         max-size: 5        # the batch is processed at this many accepted entries; empty -> 100
         max-uncommitted-pages: 10  # safety net: ask the processing to wrap up after this many pages without a commit; empty -> 10

@@ -48,6 +48,7 @@ Framework-independent Java library for consuming an Atomium feed: a low-level **
 - **FeedPointerRepository** — port for the pointer persistence; **InMemoryFeedPointerRepository** is the non-persistent builder default (tests/demos).
 - **FeedRuntime** — assembles the running machinery from a `Feed` (runner + consumer + pusher); the per-feed entry point for scheduler and management tooling.
 - **Feeds** — the registry of all `FeedRuntime`s (lookup by feedId).
+- **FeedDefaults** — the behavior defaults of the core layer (`MAX_PROCESSING_SIZE`, `MAX_UNCOMMITTED_PAGES`); the javadoc references them with `{@value}`.
 - **FeedPusher** — opt-in capability of a handler: implement it (next to the variant) to support push.
 - **EntryPusher** — internal port that processes a loose content item as if it were on the feed (troubleshooting/repair); delegates to the handler's `FeedPusher`.
 - **LoggingFeedEventListener** — the bundled `FeedEventListener` (logs the events).
@@ -86,6 +87,8 @@ integrator in principle only writes a `FeedHandler` and a `FeedRestClientBuilder
 
 - **JdbcFeedPointerRepository** — the default `FeedPointerRepository`: JDBC, table `atomium_feed_pointer_v1`.
 - **MicrometerFeedEventListener** / **AtomiumMetricsAutoConfiguration** — metrics as a `FeedEventListener` consumer (optional Micrometer dependency).
+- **AtomiumFeedHealthIndicator** / **AtomiumHealthAutoConfiguration** — one health component per feed under the contributor "atomium" (optional Boot health API).
+- **TransactionTemplateFeedTransactions** — the `FeedTransactions` port on Spring's `TransactionTemplate`.
 - **admin/** — the `/rest/atomium/**` endpoint to inspect and control feeds (own subpackage); authorization via the mandatory **AtomiumAdminAuthorization** bean (ready-made: **HasAuthorityAtomiumAdminAuthorization**).
 
 ---

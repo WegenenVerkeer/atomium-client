@@ -11,7 +11,7 @@ import tools.jackson.databind.JsonNode;
 import java.util.List;
 
 /**
- * The simplest possible batch demo ({@code simple-processing}): a {@link SimpleProcessingFeedHandler} on a
+ * The simplest possible two-phase processing demo ({@code simple-processing}): a {@link SimpleProcessingFeedHandler} on a
  * raw {@code JsonNode}, showing the two phases — {@code process} prepares the batch outside the transaction (in
  * a real app: collect ids and look them up remotely), {@code persist} writes the prepared result inside the
  * transaction that also advances the feed pointer.

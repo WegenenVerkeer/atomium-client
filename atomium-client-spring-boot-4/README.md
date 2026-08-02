@@ -272,7 +272,7 @@ And app-wide under `atomium.admin` and `atomium.health`:
 
 | Property | Default | Meaning |
 | --- | --- | --- |
-| `admin.enabled` | `false` | Exposes the [admin endpoint](#admin-diagnostics-endpoint) (only in a web app, and only when this is explicitly `true`). |
+| `admin.enabled` | `false` | Exposes the [admin endpoint](#admindiagnostics-endpoint) (only in a web app, and only when this is explicitly `true`). |
 | `admin.pretty-print` | `true` | Pretty-prints the JSON responses of the admin endpoint. |
 | `health.enabled` | `true` | Registers the [health contributor](#health) (requires the health API on the classpath). |
 | `health.failure-threshold` | `3` | From how many consecutive failed runs a feed reports `DOWN`. |

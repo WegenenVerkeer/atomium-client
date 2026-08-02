@@ -160,7 +160,7 @@ class FeedConsumerWireMockTest extends AbstractAtomiumFeedIT {
 
     /**
      * The handler SPI: an {@link be.wegenenverkeer.atomium.client.handler.EntryFeedHandler} receives the entries
-     * one by one, in read order. The lifecycle (page boundary, end of feed) is no longer a handler callback — you
+     * one by one, in read order. The lifecycle (page boundary, end of feed) is <em>not</em> a handler callback — you
      * observe it via the {@link FeedEventListener} (see {@link Events}).
      */
     @Nested

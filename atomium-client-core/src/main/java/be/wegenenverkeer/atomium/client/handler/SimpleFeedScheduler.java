@@ -19,8 +19,8 @@ import java.util.concurrent.TimeUnit;
  * executes on the feed's {@link Feed.Builder#executor(java.util.concurrent.Executor) executor}.
  *
  * <p>Call {@link #start()} after assembly and {@link #close()} when shutting down the application
- * (together with {@link Feeds#close()} to let runs in flight stop cleanly). If you already have a scheduler of your own
- * does not need this class: frequently invoking {@code runner().tryToStart()} suffices.
+ * (together with {@link Feeds#close()} to let runs in flight stop cleanly). If you already have a scheduler of your own,
+ * you do not need this class: frequently invoking {@code runner().tryToStart()} suffices.
  */
 public final class SimpleFeedScheduler {
 

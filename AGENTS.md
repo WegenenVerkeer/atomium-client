@@ -77,7 +77,7 @@ lock-step (see `VERSIONING.md`).
 
 ## Architecture of the handler API (core) + spring-boot-4 (invariants & pitfalls)
 
-The heart is the **batch processing** and the **event model**; below is what you won't immediately derive from
+The heart is the **two-phase processing** and the **event model**; below is what you won't immediately derive from
 the code. See `DESIGN.md` for the class overview and the javadoc for the details.
 
 - **Two handler variants, one internal seam.** The developer implements `EntryFeedHandler` (per entry, for
@@ -91,7 +91,7 @@ the code. See `DESIGN.md` for the class overview and the javadoc for the details
   processor tier, partial checkpoints, state across commits) sit as code comments on `FeedProcessor` and on the
   commit path in `FeedConsumerImpl` — read them before reshaping the seam.
 - **The processor owns the mutable state, not the bean.** The processor buffers the accepted entries (it also
-  applies `accepts` and counts accepted/processed); the handler bean stays stateless. The batch tier runs
+  applies `accepts` and counts accepted/processed); the handler bean stays stateless. The two-phase tier runs
   `process` in the seam callback (outside any transaction, guaranteed) and holds the prepared `P` until
   `persist()` runs inside the commit transaction. Dedup, if any, is application logic inside `process` (report
   the count via `ProcessResult`) → processing should be idempotent.
@@ -161,7 +161,8 @@ the code. See `DESIGN.md` for the class overview and the javadoc for the details
   `processing.*` group is only valid on a `SimpleProcessingFeedHandler` feed; set on any other handler →
   **fail-fast at startup** (it commits per entry — the threshold is always 1 and the safety net can never
   fire, so it would be a silent no-op).
-- **Visibility.** Most internal machinery is deliberately **package-private**; a few types are public solely
+- **Visibility.** `FeedHandler` is deliberately an interface (with default methods), not an abstract
+  class: the lib must not claim the user's only superclass. Most internal machinery is deliberately **package-private**; a few types are public solely
   because the `admin` subpackage, the demos, or a `@ConditionalOnMissingBean` override needs them. Keep new
   internal stuff package-private. In **core**, public concrete classes are **final unless extension is an
   intended extension point** — only `LoggingFeedEventListener` (with a
@@ -196,8 +197,9 @@ choices made, not this iteration or conversation. Concretely:
 
 ## Testing convention
 
-Preferably **high-level functional**, at two levels with the same `@Nested` theme layout (EntryFeedHandler /
-batch tier / Events / pointers & boundaries / Interruption / failure paths / safety net / counters): the **primary, fine-grained
+Preferably **high-level functional**, at two levels with a shared `@Nested` theme layout (core: EntryFeedHandler /
+batch tier / Events / pointers & boundaries / safety net / Interruption / read failure / failure paths /
+counters / transactions / push; the IT carries the subset that touches the Boot shell): the **primary, fine-grained
 functional spec** is `FeedConsumerTest` in core (handler API on the real fetch API on top of
 `FakeFeedHttpClient`; no HTTP/Spring, synchronous runs via an inline executor, `RecordingFeedTransactions`
 counts commits/rollbacks); `FeedConsumerWireMockTest` in spring-boot-4 (WireMock feed + testcontainers
@@ -207,9 +209,9 @@ IT. Seam behavior the two real processors never show (a declining processor) is 
 `ScriptedFeedProcessor` on a directly constructed consumer — still the real run loop. Pure logic and conditions in targeted unit tests (`MicrometerFeedEventListenerTest`;
 `AtomiumMetricsAutoConfigurationTest` via `ApplicationContextRunner`). Handy tricks: force an *interruption*
 with `InterruptingFeedEventListener` (calls `runner.deactivate()` from a listener callback; mid-batch via the
-batch double's `whenOffered`); a *304* with an
+two-phase test double's `whenOffered` — `RecordingSimpleProcessingFeedHandler` in core, `RecordingBatchedFeedHandler` in spring-boot-4); a *304* with an
 `ETag` stub + a second stub on `If-None-Match`; the *failure path* (rollback) with `handler.failAt(id)` or the
-batch double's `failInProcess()`/`failInPersist()`; the
+two-phase test double's `failInProcess()`/`failInPersist()`; the
 *pointer positions* per commit via `RecordingFeedEventListener.pointerCommits()` (and the per-commit deltas via
 `commitDeltas()`).
 
