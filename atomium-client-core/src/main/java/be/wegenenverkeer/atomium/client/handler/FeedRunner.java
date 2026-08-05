@@ -130,6 +130,19 @@ public final class FeedRunner {
         }
     }
 
+    /**
+     * A commit happened (reported by the runtime's commit listener): the feed is making progress, so the failure
+     * streak is over. A run that commits work and then fails counts as attempt 1 again — a fresh backoff
+     * episode — instead of escalating the backoff of failures it already recovered from.
+     */
+    void noteProgress() {
+        int previousFailures = consecutiveFailures.getAndSet(0);
+        if (previousFailures > 0) {
+            lastFailure = null;
+            LOG.info("feed '{}': recovered after {} consecutive failure(s)", feedId, previousFailures);
+        }
+    }
+
     /** Increment the counter, compute the new backoff deadline, log (with entry context if present) and emit the event. */
     private void recordFailure(RuntimeException e) {
         int count = consecutiveFailures.incrementAndGet();
