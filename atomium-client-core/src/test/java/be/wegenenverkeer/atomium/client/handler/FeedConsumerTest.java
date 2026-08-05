@@ -104,8 +104,8 @@ class FeedConsumerTest {
                     "lastEvent=/1#id-006 nextFetch=/2",
                     "lastEvent=/2#id-007 nextFetch=/2?after=id-007",
                     "lastEvent=/2#id-008 nextFetch=/2?after=id-008");
-            // and every commit went through the transaction layer
-            assertThat(transactions.commits()).isEqualTo(8);
+            // and every commit went through the transaction layer (the initial-pointer anchor plus one per entry)
+            assertThat(transactions.commits()).isEqualTo(9);
         }
 
         /**
@@ -375,9 +375,10 @@ class FeedConsumerTest {
 
             assertThat(eventListener.pointerCommits()).isEmpty();
             assertThat(eventListener.events()).endsWith("runFailed(1)");
-            // process runs outside any transaction: nothing to roll back
+            // process runs outside any transaction: nothing to roll back; the only commit is the
+            // initial-pointer anchor (the start position, so no event is lost)
             assertThat(transactions.rollbacks()).isZero();
-            assertThat(transactions.commits()).isZero();
+            assertThat(transactions.commits()).isEqualTo(1);
         }
 
         /** A failure in {@code persist}: the transaction rolls back, the pointer stays, the run fails. */
@@ -922,12 +923,65 @@ class FeedConsumerTest {
 
             consume(runtime);
 
-            // per entry: first the handler effect, then the pointer write — both within the transaction
+            // first the initial-pointer anchor, then per entry: the handler effect and the pointer write —
+            // every pointer write within a transaction
             assertThat(scopes).startsWith(
+                    "save(inTransaction=true)",
                     "onEntry(id-001, inTransaction=true)", "save(inTransaction=true)",
                     "onEntry(id-002, inTransaction=true)", "save(inTransaction=true)");
-            assertThat(scopes).hasSize(16)   // 8 entries × (handler + pointer write)
+            assertThat(scopes).hasSize(17)   // the anchor + 8 entries × (handler + pointer write)
                     .allSatisfy(scope -> assertThat(scope).contains("inTransaction=true"));
+        }
+    }
+
+    /**
+     * The initial pointer of a brand-new feed is resolved exactly once and persisted immediately — even when
+     * the run itself processes nothing. Without that anchor a quiet feed with a "from now" initial pointer
+     * would re-anchor on every run and silently skip every event that arrived since the previous run.
+     */
+    @Nested
+    class InitialFeedPointerAnchor {
+
+        private final InMemoryFeedPointerRepository pointerRepository = new InMemoryFeedPointerRepository();
+
+        @Test
+        void aFromNowAnchorIsPersistedEvenWhenTheRunProcessesNothing() {
+            FeedRuntime runtime = fromNowRuntime(completeFeed());
+
+            consume(runtime);
+
+            assertThat(handler.invocations()).isEmpty();
+            // anchored at the youngest existing event (id-008 on the head page /2): the next fetch re-polls
+            // the head and filters out everything up to and including that event
+            assertThat(pointerRepository.find(handler.getFeedId()))
+                    .hasValue(new FeedPointer("/2", "id-008", "/2", null));
+        }
+
+        @Test
+        void anEventArrivingAfterTheAnchorIsPickedUpByTheNextRun() {
+            FakeFeedHttpClient source = completeFeed();
+            FeedRuntime runtime = fromNowRuntime(source);
+            consume(runtime);   // anchors "from now" at id-008 without processing anything
+
+            // id-009 arrives on the head after the anchor run
+            source.page("/2", resource("2-v2.json"));
+
+            consume(runtime);
+
+            assertThat(handler.invocations()).containsExactly("onEntry(/2, id-009, fieldValue-9)");
+        }
+
+        private FeedRuntime fromNowRuntime(FakeFeedHttpClient source) {
+            AtomiumClient atomiumClient = new AtomiumClient(source, new JacksonFeedPageDecoder());
+            Feed.Builder<TestFeedEntry> builder = Feed
+                    .builder(handler.getFeedId(), handler, atomiumClient, CONTENT_DECODER)
+                    .transactions(transactions)
+                    .initialFeedPointer(atomiumClient::pointerFromNow)
+                    .pointerRepository(pointerRepository)
+                    .executor(Runnable::run)
+                    .addListener(eventListener)
+                    .addListener(interruptingListener);
+            return FeedRuntime.of(builder.build());
         }
     }
 

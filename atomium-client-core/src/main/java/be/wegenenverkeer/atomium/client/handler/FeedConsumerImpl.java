@@ -79,7 +79,18 @@ class FeedConsumerImpl<T> implements FeedConsumer, EntryPusher {
     }
 
     private FeedPointer readFeedPointer() {
-        return feedPointerRepository.find(feedId).orElseGet(initialFeedPointer);
+        return feedPointerRepository.find(feedId).orElseGet(this::anchorInitialFeedPointer);
+    }
+
+    /**
+     * Resolves the initial pointer of a brand-new feed and persists it immediately: an anchor like "from now"
+     * must be determined exactly once. Without the persist a quiet feed would re-anchor on every run and
+     * silently skip every event that arrived since the previous run.
+     */
+    private FeedPointer anchorInitialFeedPointer() {
+        FeedPointer initial = initialFeedPointer.get();
+        transactions.inTransactionWithoutResult(() -> feedPointerRepository.save(feedId, initial));
+        return initial;
     }
 
     /**
