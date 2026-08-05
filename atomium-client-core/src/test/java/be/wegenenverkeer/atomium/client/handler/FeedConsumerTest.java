@@ -986,6 +986,35 @@ class FeedConsumerTest {
     }
 
     /**
+     * The backoff counts <em>consecutive</em> failures: a run that commits work has recovered, so a later
+     * failure starts a fresh backoff episode (attempt 1) instead of escalating the backoff of failures the
+     * feed already recovered from.
+     */
+    @Nested
+    class BackoffEpisodes {
+
+        @Test
+        void aFailureAfterCommittedProgressStartsANewBackoffEpisode() {
+            FakeFeedHttpClient source = completeFeed();
+            source.page("/0", "this is not a valid feed page");
+            FeedRuntime runtime = runtime(handler, source);
+
+            consume(runtime);   // run 1: the oldest page is unreadable → attempt 1
+            assertThat(runtime.runner().consecutiveFailures()).isEqualTo(1);
+
+            source.page("/0", resource("0.json"));                  // the source recovers ...
+            source.page("/2", "this is not a valid feed page");     // ... but the head page breaks
+            runtime.runner().scheduleNextRunNow();
+
+            consume(runtime);   // run 2: commits /0 and /1, then fails on the head
+
+            // the committed progress ended the failure streak: attempt 1 again, not attempt 2
+            assertThat(runtime.runner().consecutiveFailures()).isEqualTo(1);
+            assertThat(eventListener.events()).endsWith("runFailed(1)");
+        }
+    }
+
+    /**
      * The {@code EntryPusher}: process a raw content item as if it were on the feed — decode + invoke the handler,
      * within one transaction, but deliberately <em>without</em> advancing the feed pointer and without events
      * (the item was not really on the feed).

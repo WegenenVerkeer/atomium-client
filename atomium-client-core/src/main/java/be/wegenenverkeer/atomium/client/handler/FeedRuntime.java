@@ -42,8 +42,10 @@ public final class FeedRuntime {
         String feedId = feed.feedId();
         Progress progress = new Progress(clock);
         // the progress listener first: that way the runtime state is already updated before the app listeners fire
+        RunnerProgressListener runnerProgress = new RunnerProgressListener();
         List<FeedEventListener> allListeners = new ArrayList<>();
         allListeners.add(progress);
+        allListeners.add(runnerProgress);
         allListeners.addAll(feed.listeners());
         FeedEventListener listeners = new FeedEventListeners(allListeners);
         Supplier<FeedProcessor<T>> processors =
@@ -53,8 +55,27 @@ public final class FeedRuntime {
                 feed.pointerRepository(), feed.transactions(), initialFeedPointer(feed), listeners);
         FeedRunner runner = new FeedRunner(feedId, feed.queryInterval(), consumer, feed.executor(),
                 feed.activeOnStartup(), feed.backoffPolicy(), clock, listeners);
+        runnerProgress.runner = runner;
         // the consumer is also the EntryPusher (it owns the decoder + handler + transaction)
         return new FeedRuntime(feed, runner, consumer, progress);
+    }
+
+    /**
+     * Reports every commit to the {@link FeedRunner} ({@link FeedRunner#noteProgress()}), so that a run that
+     * commits work ends the failure streak even if it fails later on. A listener (set after construction —
+     * the runner itself needs the listener composite), because the consumer only knows the listeners.
+     */
+    private static final class RunnerProgressListener implements FeedEventListener {
+
+        private @Nullable FeedRunner runner;
+
+        @Override
+        public void feedPointerAdvanced(String feedId, FeedPointer feedPointer, FeedRunResult sincePreviousCommit,
+                                        @Nullable OffsetDateTime latestEventUpdated) {
+            if (runner != null) {
+                runner.noteProgress();
+            }
+        }
     }
 
     /**
