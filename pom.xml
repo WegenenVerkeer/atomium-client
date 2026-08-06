@@ -225,7 +225,10 @@
                         <configuration>
                             <publishingServerId>central</publishingServerId>
                             <autoPublish>true</autoPublish>
-                            <waitUntil>published</waitUntil>
+                            <!-- wait for validation (that is the signal that can fail), not for the publish
+                                 itself: publishing continues automatically server-side and can exceed the
+                                 30-minute polling window, which would fail the build after the point of no return -->
+                            <waitUntil>validated</waitUntil>
                             <excludeArtifacts>
                                 <excludeArtifact>atomium-client-core-demo</excludeArtifact>
                                 <excludeArtifact>atomium-client-spring-boot-4-demo</excludeArtifact>
