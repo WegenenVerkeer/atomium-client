@@ -70,7 +70,7 @@ class FeedConsumerImpl<T> implements FeedConsumer, EntryPusher {
             throw new UnsupportedOperationException(
                     "this handler does not support pushing entries; implement FeedPusher to support it");
         }
-        @SuppressWarnings("unchecked")   // FeedPusher's contract: C is the handler's own content type
+        @SuppressWarnings("unchecked")   // guaranteed by FeedPusher<C> extends FeedHandler<C>: C is the handler's own content type
         FeedPusher<T> pusher = (FeedPusher<T>) handler;
         transactions.inTransactionWithoutResult(() -> {
             T content = feedContentDecoder.readFeedContent(rawContent);
