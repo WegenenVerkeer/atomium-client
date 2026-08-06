@@ -34,6 +34,41 @@ class FeedRuntimeTest {
                 "feed", batchHandler("feed"), null));
     }
 
+    /** A handler with both variants is ambiguous: the framework refuses to silently pick one. */
+    @Test
+    void aHandlerWithBothVariantsFailsFast() {
+        // both variants declare a default accepts; the forced override is what makes this compilable at all
+        class BothVariantsHandler implements EntryFeedHandler<String>, SimpleProcessingFeedHandler<String, Integer> {
+            @Override
+            public String getFeedId() {
+                return "feed";
+            }
+
+            @Override
+            public boolean accepts(FeedPageMetadata pageMetadata, AtomiumEntry entry, String content) {
+                return true;
+            }
+
+            @Override
+            public void onEntry(FeedPageMetadata pageMetadata, AtomiumEntry entry, String content) {
+            }
+
+            @Override
+            public ProcessResult<Integer> process(List<ProcessingEntry<String>> entries) {
+                return ProcessResult.of(entries.size());
+            }
+
+            @Override
+            public void persist(Integer prepared) {
+            }
+        }
+
+        assertThatIllegalStateException()
+                .isThrownBy(() -> FeedRuntime.processorFor("feed", new BothVariantsHandler(), null))
+                .withMessageContaining("both")
+                .withMessageContaining("exactly one variant");
+    }
+
     /** A {@link FeedHandler} without either of the two variants has no entry callback → fail-fast. */
     @Test
     void aHandlerWithoutVariantFailsFast() {

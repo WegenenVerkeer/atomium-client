@@ -106,14 +106,21 @@ public final class FeedRuntime {
      * because the consumer takes a fresh processor per run (a half-filled batch must never linger between
      * runs).
      *
-     * <p><b>Fail-fast at assembly</b> (twice): a {@link FeedHandler} that implements neither variant has no
-     * entry callback at all — that feed would silently do nothing. And a {@code maxProcessingSize} on a
+     * <p><b>Fail-fast at assembly</b> (three times): a {@link FeedHandler} that implements neither variant has
+     * no entry callback at all — that feed would silently do nothing. A handler that implements <em>both</em>
+     * variants is ambiguous — the framework refuses to silently pick one. And a {@code maxProcessingSize} on a
      * feed with an {@link EntryFeedHandler} is a configuration mistake (it processes per entry); we prefer
      * refusing it over silently ignoring it.
      */
     static <T> Supplier<FeedProcessor<T>> processorFor(
             String feedId, FeedHandler<T> handler, @Nullable Integer maxProcessingSize) {
 
+        if (handler instanceof SimpleProcessingFeedHandler && handler instanceof EntryFeedHandler) {
+            // core assertion (framework-neutral); the switch below would otherwise silently pick one variant
+            throw new IllegalStateException(("feed '%s': handler %s implements both EntryFeedHandler and "
+                    + "SimpleProcessingFeedHandler; the framework cannot choose which callback drives the feed. "
+                    + "Implement exactly one variant.").formatted(feedId, handler.getClass().getName()));
+        }
         switch (handler) {
             case SimpleProcessingFeedHandler<T, ?> simple -> {
                 int size = maxProcessingSize != null

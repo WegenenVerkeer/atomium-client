@@ -16,7 +16,9 @@ package be.wegenenverkeer.atomium.client.handler;
  * A handler that does not implement it does not support push: the framework then throws an
  * {@link UnsupportedOperationException} (which the admin endpoint translates into a 400).
  *
- * <p>{@code C} must be the handler's own content type: the framework decodes the pushed raw content with the
+ * <p>Because {@code FeedPusher<C>} extends {@code FeedHandler<C>}, {@code C} is necessarily the handler's own
+ * content type — a handler cannot declare a different push type (the compiler rejects two {@code FeedHandler}
+ * type arguments). The framework decodes the pushed raw content with the
  * feed's regular decoder and hands it to {@link #pushEntry}. Unlike the regular processing callbacks there is
  * no {@link be.wegenenverkeer.atomium.client.protocol.AtomiumEntry} or
  * {@link be.wegenenverkeer.atomium.client.protocol.FeedPageMetadata} available (the item was never really on
@@ -29,7 +31,7 @@ package be.wegenenverkeer.atomium.client.handler;
  *
  * @param <C> the domain type of the entry content — the same type as the handler's
  */
-public interface FeedPusher<C> {
+public interface FeedPusher<C> extends FeedHandler<C> {
 
     /**
      * Process one pushed content item. Runs inside its own transaction, just like the normal processing —
