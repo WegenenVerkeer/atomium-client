@@ -1,6 +1,5 @@
 package be.wegenenverkeer.atomium.client.springboot;
 
-import be.wegenenverkeer.atomium.client.handler.EntryFeedHandler;
 import be.wegenenverkeer.atomium.client.handler.SimpleProcessingFeedHandler;
 import be.wegenenverkeer.atomium.client.handler.ExponentialFeedBackoffPolicy;
 import be.wegenenverkeer.atomium.client.handler.FeedDefaults;
@@ -10,6 +9,10 @@ import org.jspecify.annotations.Nullable;
 import org.springframework.boot.context.properties.bind.DefaultValue;
 
 import java.time.Duration;
+import java.util.Collections;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 
 /**
  * The generic config for one feed, bound as the value in {@code atomium.feeds.<feedId>} (the map key is the
@@ -22,6 +25,11 @@ import java.time.Duration;
  * record.
  *
  * @param url                 the feed base url; required (the framework fails fast at startup when it is missing)
+ * @param queryParams         optional: query parameters sent with <em>every</em> fetch (the head as well as every
+ *                            page), added to any query parameters the page href itself carries — for feed
+ *                            servers whose behavior is steered per request, e.g. a server-side filter:
+ *                            {@code query-params: {ignore-readmodels: true, type: [x, y]}} (a scalar binds as a
+ *                            single-element list); empty by default
  * @param activeOnStartup    whether the consumer may start automatically
  * @param queryInterval       the poll frequency: the wait time between the end of a successful run and the next
  * @param initialFeedPointer optional: the start position for a brand-new feed (only used as long as no
@@ -33,6 +41,7 @@ import java.time.Duration;
  */
 public record AtomiumFeedProperties(
         @Nullable String url,
+        @DefaultValue Map<String, List<String>> queryParams,
         @DefaultValue(Defaults.ACTIVE_ON_STARTUP) boolean activeOnStartup,
         @DefaultValue(Defaults.QUERY_INTERVAL) Duration queryInterval,
         @Nullable InitialFeedPointer initialFeedPointer,
@@ -41,6 +50,10 @@ public record AtomiumFeedProperties(
 ) {
 
     public AtomiumFeedProperties {
+        // deep, immutable copy that keeps the binding order (deterministic request URIs)
+        Map<String, List<String>> queryParamsCopy = new LinkedHashMap<>();
+        queryParams.forEach((name, values) -> queryParamsCopy.put(name, List.copyOf(values)));
+        queryParams = Collections.unmodifiableMap(queryParamsCopy);
         if (queryInterval.isZero() || queryInterval.isNegative()) {
             throw new IllegalArgumentException("query-interval must be positive, was " + queryInterval);
         }

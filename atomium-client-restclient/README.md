@@ -24,3 +24,12 @@ RestClient restClient = RestClient.builder().baseUrl("https://source/call-servic
 FeedHttpClient httpClient = new SpringFeedHttpClient(restClient);
 var client = new AtomiumClient(httpClient, feedPageDecoder);
 ```
+
+Query parameters that must travel with **every** fetch (the head as well as every page) — for feed
+servers whose behavior is steered per request, e.g. a (multi-valued) server-side filter — go in the
+second constructor argument. They are added to any query parameters the page href itself carries:
+
+```java
+FeedHttpClient httpClient = new SpringFeedHttpClient(restClient,
+        Map.of("ignore-readmodels", List.of("true"), "type", List.of("x", "y")));
+```

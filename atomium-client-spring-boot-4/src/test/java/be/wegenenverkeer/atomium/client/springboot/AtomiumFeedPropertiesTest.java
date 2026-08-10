@@ -9,6 +9,7 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
 import java.time.Duration;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatIllegalArgumentException;
@@ -38,7 +39,7 @@ class AtomiumFeedPropertiesTest {
         }
 
         private static AtomiumFeedProperties feedProperties(Duration queryInterval) {
-            return new AtomiumFeedProperties("http://localhost/feed", false, queryInterval, null,
+            return new AtomiumFeedProperties("http://localhost/feed", Map.of(), false, queryInterval, null,
                     new Backoff(Duration.ofMinutes(1), Duration.ofHours(1), 2), new Processing(null, null));
         }
     }

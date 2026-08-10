@@ -61,6 +61,12 @@ atomium:
     full-monty:
       # the feed base url (generic, mandatory)
       url: http://localhost:14210/atomium-client-spring-boot-4-demo/demo-feed
+      # query parameters sent with every fetch (head and pages alike), added to any query params the page
+      # href itself carries — e.g. a (multi-valued) server-side filter. A scalar binds as a single-element
+      # list. The demo feed ignores them; watch them travel in the request log. (default empty)
+      query-params:
+        type: [MONTY_NEW, MONTY_UPDATE]
+        style: compact
       # whether the consumer is activated automatically at startup (default false)
       active-on-startup: false
       # poll frequency: how often the scheduler may trigger a run (default 1m)

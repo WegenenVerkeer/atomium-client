@@ -658,6 +658,26 @@ class FeedConsumerWireMockTest extends AbstractAtomiumFeedIT {
     }
 
     /**
+     * The configured {@code query-params} travel with <em>every</em> fetch of the run — the head as well as
+     * every page — so a feed server that steers its behavior per request (e.g. a filter switch) sees them
+     * consistently. A scalar binds as a single value, a yaml list as a multi-valued param.
+     */
+    @Test
+    void theConfiguredQueryParamsTravelWithEveryFetch() {
+        stubCompleteFeed();
+
+        consume(handler.getFeedId());
+
+        wiremock.verify(getRequestedFor(urlPathEqualTo("/feed")).withQueryParam("variant", equalTo("raw")));
+        wiremock.verify(getRequestedFor(urlPathEqualTo("/feed/0")).withQueryParam("variant", equalTo("raw")));
+        wiremock.verify(getRequestedFor(urlPathEqualTo("/feed/2"))
+                .withQueryParam("variant", equalTo("raw"))
+                .withQueryParam("type", equalTo("x"))
+                .withQueryParam("type", equalTo("y")));
+        assertThat(eventListener.events()).contains("endOfFeedReached");
+    }
+
+    /**
      * Auth (typically a JWT) is applied via a request interceptor and must be minted <em>per HTTP request</em>: the
      * run that retries after a failed run must carry a freshly minted header, never a value reused from the failed
      * attempt. (The predecessor of this suite froze the {@code Authorization} header of the first attempt in its

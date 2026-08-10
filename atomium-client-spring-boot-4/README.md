@@ -258,6 +258,7 @@ Per feed under `atomium.feeds.<feedId>` (map key = `getFeedId()`):
 | Property | Default | Meaning |
 | --- | --- | --- |
 | `url` | — (required) | The feed base URL. Fails fast at startup when missing. |
+| `query-params` | empty | Query parameters sent with **every** fetch (the head as well as every page), added to any query parameters the page href itself carries — for feed servers whose behavior is steered per request, e.g. a (multi-valued) server-side filter: `query-params: {ignore-readmodels: true, type: [x, y]}`. A scalar binds as a single-element list. |
 | `active-on-startup` | `false` | Whether the consumer starts automatically. |
 | `query-interval` | `1m` | Poll frequency: the wait between the end of a successful run and the start of the next. |
 | `initial-feed-pointer.type` | — | Start position of a **new** feed: `oldest` (full history), `now` (only new events), or `pointer` (+ `page-link`). Only used as long as no pointer has been persisted yet. |

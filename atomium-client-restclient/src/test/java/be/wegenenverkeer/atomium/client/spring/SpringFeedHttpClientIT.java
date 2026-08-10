@@ -23,6 +23,7 @@ import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 import static com.github.tomakehurst.wiremock.client.WireMock.aResponse;
 import static com.github.tomakehurst.wiremock.client.WireMock.equalTo;
@@ -161,6 +162,69 @@ class SpringFeedHttpClientIT {
             resumed.fetchEntries().forEach(fetchEntry -> processed.add(fetchEntry.entry().id()));
 
             assertThat(processed).containsExactly("id-004", "id-005", "id-006");
+        }
+    }
+
+    @Nested
+    class QueryParams {
+
+        /** Same feed, but the client is configured with default query params for every GET. */
+        private AtomiumClient clientWithQueryParams() {
+            RestClient restClient = RestClient.builder().baseUrl(wm.baseUrl() + "/feed").build();
+            return new AtomiumClient(
+                    new SpringFeedHttpClient(restClient, Map.of("variant", List.of("raw"))),
+                    new JacksonFeedPageDecoder());
+        }
+
+        /** The stubs match on the query param: a fetch without it would 404 and fail the test. */
+        @Test
+        void theHeadFetchCarriesTheQueryParams() {
+            wm.stubFor(get(urlPathEqualTo("/feed")).withQueryParam("variant", equalTo("raw"))
+                    .willReturn(okJson(resource("2-v1.json"))));
+
+            FetchResult result = clientWithQueryParams().fetchYoungest();
+
+            assertThat(ids(result)).containsExactly("id-007", "id-008");
+        }
+
+        @Test
+        void aPageFetchCombinesTheQueryParamsWithTheEtag() {
+            wm.stubFor(get(urlPathEqualTo("/feed/2"))
+                    .withQueryParam("variant", equalTo("raw"))
+                    .withHeader("If-None-Match", equalTo("etag-x"))
+                    .willReturn(aResponse().withStatus(304)));
+
+            assertThat(clientWithQueryParams().fetch(onPage("/2", "id-008", "etag-x"))).isEmpty();
+        }
+
+        /** A multi-valued param (e.g. a server-side filter on multiple types) is sent once per value. */
+        @Test
+        void aMultiValuedQueryParamIsSentOncePerValue() {
+            RestClient restClient = RestClient.builder().baseUrl(wm.baseUrl() + "/feed").build();
+            var client = new AtomiumClient(
+                    new SpringFeedHttpClient(restClient, Map.of("type", List.of("x", "y"))),
+                    new JacksonFeedPageDecoder());
+            wm.stubFor(get(urlPathEqualTo("/feed/1"))
+                    .withQueryParam("type", equalTo("x"))
+                    .withQueryParam("type", equalTo("y"))
+                    .willReturn(okJson(resource("1.json"))));
+
+            FetchResult result = client.fetch(new FeedPointer("/1")).orElseThrow();
+
+            assertThat(ids(result)).containsExactly("id-004", "id-005", "id-006");
+        }
+
+        /** A page href may carry query params of its own; the configured params are added, not substituted. */
+        @Test
+        void theConfiguredParamsAreAddedToTheQueryParamsOfThePageHrefItself() {
+            wm.stubFor(get(urlPathEqualTo("/feed/1"))
+                    .withQueryParam("style", equalTo("compact"))
+                    .withQueryParam("variant", equalTo("raw"))
+                    .willReturn(okJson(resource("1.json"))));
+
+            FetchResult result = clientWithQueryParams().fetch(new FeedPointer("/1?style=compact")).orElseThrow();
+
+            assertThat(ids(result)).containsExactly("id-004", "id-005", "id-006");
         }
     }
 

@@ -8,6 +8,11 @@ atomium:
     # FooAppFeedHandler
     foo-app:
       url: http://localhost:${wiremock.feed.port}/feed
+      # sent with every fetch (the stubs match on path only, so the other foo-app tests are unaffected);
+      # a scalar binds as a single-element list, a yaml list as a multi-valued param
+      query-params:
+        variant: raw
+        type: [x, y]
       # large interval: the behavior test triggers the runs itself; this keeps the scheduler from ticking in between
       query-interval: 1h
       initial-feed-pointer:

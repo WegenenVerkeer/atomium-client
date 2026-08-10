@@ -108,7 +108,7 @@ public class FeedFactory {
     private <T> Feed<T> buildFeed(FeedHandler<T> handler, FeedConfiguration configuration) {
         AtomiumFeedProperties properties = configuration.properties();
         RestClient restClient = configuration.restClientBuilder().build();
-        FeedHttpClient feedHttpClient = new SpringFeedHttpClient(restClient);
+        FeedHttpClient feedHttpClient = new SpringFeedHttpClient(restClient, properties.queryParams());
         AtomiumClient atomiumClient = new AtomiumClient(feedHttpClient, feedPageDecoder);
 
         FeedContentDecoder<T> decoder = JacksonFeedContentDecoder.of(handler, configuration.getContentMapper());

@@ -156,8 +156,10 @@ the code. See `DESIGN.md` for the class overview and the javadoc for the details
   to `org.springframework.boot.micrometer.metrics.autoconfigure`), otherwise `@ConditionalOnBean(MeterRegistry)`
   sees nothing. That fails **silently** in a plain unit test → the demo context test explicitly asserts that the
   listener is wired.
-- **Config** under `atomium.feeds.<id>.*`: `url`, `active-on-startup`, `query-interval`,
-  `initial-feed-pointer`, `backoff`, and `processing.{max-size, max-uncommitted-pages}`. The whole
+- **Config** under `atomium.feeds.<id>.*`: `url`, `query-params` (multi-valued; sent with every fetch,
+  head and pages alike, *added to* any query params the page href itself carries — applied by
+  `SpringFeedHttpClient`, so the hand-assembled path gets them via its constructor), `active-on-startup`,
+  `query-interval`, `initial-feed-pointer`, `backoff`, and `processing.{max-size, max-uncommitted-pages}`. The whole
   `processing.*` group is only valid on a `SimpleProcessingFeedHandler` feed; set on any other handler →
   **fail-fast at startup** (it commits per entry — the threshold is always 1 and the safety net can never
   fire, so it would be a silent no-op).
