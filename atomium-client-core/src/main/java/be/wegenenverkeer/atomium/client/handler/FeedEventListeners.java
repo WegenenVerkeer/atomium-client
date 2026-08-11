@@ -27,6 +27,16 @@ class FeedEventListeners implements FeedEventListener {
     }
 
     @Override
+    public void feedActivated(String feedId) {
+        dispatch(feedId, listener -> listener.feedActivated(feedId));
+    }
+
+    @Override
+    public void feedDeactivated(String feedId) {
+        dispatch(feedId, listener -> listener.feedDeactivated(feedId));
+    }
+
+    @Override
     public void runStarted(String feedId, FeedPointer startPosition) {
         dispatch(feedId, listener -> listener.runStarted(feedId, startPosition));
     }

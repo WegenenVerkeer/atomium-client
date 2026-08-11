@@ -73,7 +73,10 @@ public final class FeedRunner {
         this.backoffPolicy = backoffPolicy;
         this.clock = clock;
         this.listeners = listeners;
-        this.active = new AtomicBoolean(activeOnStartup);
+        this.active = new AtomicBoolean(false);
+        if (activeOnStartup) {
+            activate();
+        }
     }
 
     /**
@@ -178,8 +181,10 @@ public final class FeedRunner {
     /** Mark the feed as desired-active (config startup or admin) and let the very next tick start right away. */
     public void activate() {
         scheduleNextRunNow();
-        active.set(true);
-        LOG.info("feed '{}': activated", feedId);
+        if (active.compareAndSet(false, true)) {
+            LOG.info("feed '{}': activated", feedId);
+            listeners.feedActivated(feedId);
+        }
     }
 
     /**
@@ -188,8 +193,10 @@ public final class FeedRunner {
      * the run has actually stopped, use {@link #deactivateAndAwait}.
      */
     public void deactivate() {
-        active.set(false);
-        LOG.info("feed '{}': deactivated; a run in flight, if any, stops after the next commit point", feedId);
+        if (active.compareAndSet(true, false)) {
+            LOG.info("feed '{}': deactivated; a run in flight, if any, stops after the next commit point", feedId);
+            listeners.feedDeactivated(feedId);
+        }
     }
 
     /**

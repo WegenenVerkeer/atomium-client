@@ -31,6 +31,7 @@ import java.util.concurrent.atomic.AtomicLong;
  * <table><caption>The metrics (all tagged {@code feed})</caption>
  *   <tr><td>{@code atomium.runs} (tag {@code outcome})</td><td>counter</td><td>one run ended ({@code completed}/{@code interrupted}/{@code failed})</td></tr>
  *   <tr><td>{@code atomium.entries.read|accepted|processed}</td><td>counter</td><td>summed per commit; read/accepted count entries, processed is the handler's own measure of realised work (default: entries)</td></tr>
+ *   <tr><td>{@code atomium.feed.last.success.time}</td><td>time gauge</td><td>the last moment the feed demonstrably made healthy progress: seeded at activation, advanced on every commit and every completed run (also an empty poll or 304), removed at deactivation. The staleness signal for a "feed consumer down" alert.</td></tr>
  *   <tr><td>{@code atomium.entries.last.commit.time}</td><td>time gauge</td><td>timestamp of the last commit (is the feed still alive?)</td></tr>
  *   <tr><td>{@code atomium.entries.last.event.time}</td><td>time gauge</td><td>{@code updated} of the youngest event a commit covered (how current is the data?)</td></tr>
  *   <tr><td>{@code atomium.pages.fetched}</td><td>counter</td><td>HTTP pages fetched</td></tr>
@@ -48,10 +49,27 @@ public class MicrometerFeedEventListener implements FeedEventListener {
     // backing stores for the gauges: one atomic per feed, the gauge reads it live
     private final ConcurrentHashMap<String, AtomicInteger> consecutiveFailures = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, AtomicLong> lastCommit = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, AtomicLong> lastSuccess = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, AtomicLong> lastEvent = new ConcurrentHashMap<>();
 
     public MicrometerFeedEventListener(MeterRegistry registry) {
         this.registry = registry;
+    }
+
+    @Override
+    public void feedActivated(String feedId) {
+        // seed at activation: the series exists from the moment the feed is supposed to make progress,
+        // so a feed that never gets going alarms by going stale instead of staying invisible
+        lastSuccessGauge(feedId).set(registry.config().clock().wallTime());
+    }
+
+    @Override
+    public void feedDeactivated(String feedId) {
+        // remove the series: a deliberately stopped feed (admin, leader handover) must not go stale
+        if (lastSuccess.remove(feedId) != null) {
+            registry.find("atomium.feed.last.success.time").tag(TAG_FEED, feedId).timeGauges()
+                    .forEach(registry::remove);
+        }
     }
 
     @Override
@@ -68,6 +86,7 @@ public class MicrometerFeedEventListener implements FeedEventListener {
     public void runCompleted(String feedId, FeedRunResult result) {
         registry.counter("atomium.runs", TAG_FEED, feedId, "outcome", "completed").increment();
         failuresGauge(feedId).set(0);   // a successful run → the feed is healthy again
+        touchLastSuccess(feedId);       // also an empty poll or a 304 is healthy progress
     }
 
     @Override
@@ -89,6 +108,7 @@ public class MicrometerFeedEventListener implements FeedEventListener {
         registry.counter("atomium.entries.accepted", TAG_FEED, feedId).increment(sincePreviousCommit.accepted());
         registry.counter("atomium.entries.processed", TAG_FEED, feedId).increment(sincePreviousCommit.processed());
         lastCommitGauge(feedId).set(registry.config().clock().wallTime());
+        touchLastSuccess(feedId);
         if (latestEventUpdated != null) {
             lastEventGauge(feedId).set(latestEventUpdated.toInstant().toEpochMilli());
         }
@@ -102,6 +122,28 @@ public class MicrometerFeedEventListener implements FeedEventListener {
                     .tag(TAG_FEED, id)
                     .register(registry);
             return counter;
+        });
+    }
+
+    /**
+     * Advance last-success, but only for an activated feed ({@link #feedActivated} seeded it): a commit of a
+     * run that is still in flight after a deactivation must not resurrect the removed series.
+     */
+    private void touchLastSuccess(String feedId) {
+        AtomicLong timestamp = lastSuccess.get(feedId);
+        if (timestamp != null) {
+            timestamp.set(registry.config().clock().wallTime());
+        }
+    }
+
+    /** The backing timestamp (epoch millis) of the last-success gauge for this feed; registered at activation. */
+    private AtomicLong lastSuccessGauge(String feedId) {
+        return lastSuccess.computeIfAbsent(feedId, id -> {
+            AtomicLong timestamp = new AtomicLong(0);
+            TimeGauge.builder("atomium.feed.last.success.time", timestamp, TimeUnit.MILLISECONDS, AtomicLong::get)
+                    .tag(TAG_FEED, id)
+                    .register(registry);
+            return timestamp;
         });
     }
 

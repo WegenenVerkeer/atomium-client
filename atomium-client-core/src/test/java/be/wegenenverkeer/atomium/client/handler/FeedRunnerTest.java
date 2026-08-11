@@ -429,6 +429,49 @@ class FeedRunnerTest {
         }
     }
 
+    @Nested
+    class ActivationEvents {
+
+        private final List<String> events = new ArrayList<>();
+        private final FeedEventListener recorder = new FeedEventListener() {
+            @Override
+            public void feedActivated(String feedId) {
+                events.add("activated");
+            }
+
+            @Override
+            public void feedDeactivated(String feedId) {
+                events.add("deactivated");
+            }
+        };
+
+        private FeedRunner runner(boolean activeOnStartup) {
+            return new FeedRunner("feed", Duration.ofMinutes(1), isInterrupted -> {
+            }, Runnable::run, activeOnStartup, n -> Duration.ofMinutes(1), Clock.systemUTC(), recorder);
+        }
+
+        @Test
+        void activeOnStartupEmitsFeedActivatedAtConstruction() {
+            runner(true);
+
+            assertThat(events).containsExactly("activated");
+        }
+
+        /** Only state transitions emit: a redundant activate/deactivate is silent. */
+        @Test
+        void emitsOnlyOnTransitions() {
+            FeedRunner runner = runner(false);
+            assertThat(events).isEmpty();
+
+            runner.activate();
+            runner.activate();
+            runner.deactivate();
+            runner.deactivate();
+
+            assertThat(events).containsExactly("activated", "deactivated");
+        }
+    }
+
     // success/failure-agnostic defaults for the non-backoff tests
     private static FeedRunner runner(FeedConsumer consumer, Executor executor, boolean activeOnStartup) {
         return new FeedRunner("feed", Duration.ofMinutes(1), consumer, executor, activeOnStartup,

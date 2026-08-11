@@ -141,7 +141,9 @@ the code. See `DESIGN.md` for the class overview and the javadoc for the details
   `feedPointerAdvanced` carries per commit the delta counters since the previous commit (so metrics also count
   mid-way through a long run, without loss on a later failure) plus `latestEventUpdated`, the freshness signal
   that feeds the `atomium.entries.last.event.time` gauge.
-  The only exception: `runFailed` comes from `FeedRunner` (which knows the backoff).
+  The only exceptions come from `FeedRunner`: `runFailed` (it knows the backoff) and the lifecycle events
+  `feedActivated`/`feedDeactivated` (emitted only on state transitions, including `active-on-startup` at
+  construction; the metrics listener seeds/removes the `atomium.feed.last.success.time` gauge on them).
   Logging (`LoggingFeedEventListener`) and metrics (`MicrometerFeedEventListener`) are both just listeners — by
   design.
 - **Health.** `AtomiumFeedHealthIndicator` per feed under a single contributor "atomium"

@@ -29,6 +29,22 @@ import java.time.OffsetDateTime;
 public interface FeedEventListener {
 
     /**
+     * The feed has been activated (at startup via {@code active-on-startup}, or later by an admin or a
+     * leader-election): from now on it is supposed to make progress. Emitted by the {@code FeedRunner},
+     * only on the transition inactive → active, on the calling thread.
+     */
+    default void feedActivated(String feedId) {
+    }
+
+    /**
+     * The feed has been deactivated (admin, shutdown, or a leader handing over): it is deliberately no
+     * longer supposed to make progress. Emitted by the {@code FeedRunner}, only on the transition
+     * active → inactive, on the calling thread.
+     */
+    default void feedDeactivated(String feedId) {
+    }
+
+    /**
      * A run has started; {@code startPosition} is the pointer from which reading happens.
      *
      * <p><b>Edge case:</b> for a brand-new feed that start position is determined lazily (an HTTP call to the source,

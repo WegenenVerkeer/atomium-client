@@ -119,6 +119,45 @@ class MicrometerFeedEventListenerTest {
         assertThat(gauge("feed-a")).isZero();
     }
 
+    @Test
+    void seedsLastSuccessAtActivationAndAdvancesItOnProgress() {
+        assertThat(lastSuccess("feed-a")).isNull();   // not activated yet → no series yet
+
+        listener.feedActivated("feed-a");
+        double seeded = lastSuccess("feed-a");
+        assertThat(seeded).isEqualTo(clock.wallTime());
+
+        clock.add(Duration.ofMinutes(5));
+        listener.feedPointerAdvanced("feed-a", POINTER, EMPTY, null);
+        assertThat(lastSuccess("feed-a")).isEqualTo(clock.wallTime()).isGreaterThan(seeded);
+
+        clock.add(Duration.ofMinutes(5));
+        listener.runCompleted("feed-a", EMPTY);   // also an empty poll or a 304 is healthy progress
+        assertThat(lastSuccess("feed-a")).isEqualTo(clock.wallTime());
+    }
+
+    /** Without activation there is no series: a standby pod (leader election) must not go stale. */
+    @Test
+    void aFeedThatWasNeverActivatedGetsNoLastSuccessSeries() {
+        listener.runCompleted("feed-a", EMPTY);
+        listener.feedPointerAdvanced("feed-a", POINTER, EMPTY, null);
+
+        assertThat(lastSuccess("feed-a")).isNull();
+    }
+
+    /** Deactivation removes the series, and a commit of a run still in flight must not resurrect it. */
+    @Test
+    void removesTheLastSuccessSeriesAtDeactivation() {
+        listener.feedActivated("feed-a");
+        assertThat(lastSuccess("feed-a")).isNotNull();
+
+        listener.feedDeactivated("feed-a");
+        assertThat(lastSuccess("feed-a")).isNull();
+
+        listener.feedPointerAdvanced("feed-a", POINTER, EMPTY, null);
+        assertThat(lastSuccess("feed-a")).isNull();
+    }
+
     private double counter(String name, String feedId) {
         return registry.get(name).tag("feed", feedId).counter().count();
     }
@@ -134,6 +173,11 @@ class MicrometerFeedEventListenerTest {
 
     private Double lastCommit(String feedId) {
         var gauge = registry.find("atomium.entries.last.commit.time").tag("feed", feedId).timeGauge();
+        return gauge == null ? null : gauge.value(TimeUnit.MILLISECONDS);
+    }
+
+    private Double lastSuccess(String feedId) {
+        var gauge = registry.find("atomium.feed.last.success.time").tag("feed", feedId).timeGauge();
         return gauge == null ? null : gauge.value(TimeUnit.MILLISECONDS);
     }
 
