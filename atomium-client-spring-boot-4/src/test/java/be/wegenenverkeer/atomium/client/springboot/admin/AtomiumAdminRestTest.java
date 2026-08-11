@@ -95,7 +95,7 @@ class AtomiumAdminRestTest {
 
         @Bean
         AtomiumAdminAuthorization atomiumAdminAuthorization() {
-            return new HasAuthorityAtomiumAdminAuthorization("system-admin");
+            return new HasAuthorityAtomiumAdminAuthorization("SYSTEM-ADMIN");
         }
 
         @Bean
