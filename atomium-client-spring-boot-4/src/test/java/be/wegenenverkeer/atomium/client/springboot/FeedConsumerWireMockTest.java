@@ -4,6 +4,7 @@ import be.wegenenverkeer.atomium.client.handler.FeedEventListener;
 import be.wegenenverkeer.atomium.client.handler.FeedHandler;
 import be.wegenenverkeer.atomium.client.handler.FeedRunner;
 import be.wegenenverkeer.atomium.client.handler.InterruptingFeedEventListener;
+import be.wegenenverkeer.atomium.client.handler.LoggingFeedEventListener;
 import be.wegenenverkeer.atomium.client.handler.RecordingFeedEventListener;
 import be.wegenenverkeer.atomium.client.handler.Feeds;
 
@@ -18,6 +19,7 @@ import org.springframework.context.annotation.Import;
 import org.springframework.http.HttpHeaders;
 import org.springframework.jdbc.core.simple.JdbcClient;
 
+import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static com.github.tomakehurst.wiremock.client.WireMock.aResponse;
@@ -655,6 +657,15 @@ class FeedConsumerWireMockTest extends AbstractAtomiumFeedIT {
         // the interceptor ran (once per fetched page) and the regular processing stayed intact
         assertThat(InlineExecutorConfig.INTERCEPTOR_CALLS.get()).isGreaterThan(0);
         assertThat(eventListener.events()).contains("endOfFeedReached");
+    }
+
+    @Autowired
+    private List<FeedEventListener> feedEventListeners;
+
+    /** The bundled logging listener is ordered first, so its log line precedes the app listeners' reactions. */
+    @Test
+    void theLoggingListenerReactsBeforeAppListeners() {
+        assertThat(feedEventListeners.getFirst()).isInstanceOf(LoggingFeedEventListener.class);
     }
 
     /**

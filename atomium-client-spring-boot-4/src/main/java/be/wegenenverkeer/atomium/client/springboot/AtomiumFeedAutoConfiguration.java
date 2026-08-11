@@ -12,6 +12,8 @@ import be.wegenenverkeer.atomium.client.springboot.admin.AtomiumAdminAuthorizati
 import be.wegenenverkeer.atomium.client.springboot.admin.AtomiumAdminEndpoint;
 import be.wegenenverkeer.atomium.client.springboot.admin.AtomiumAdminService;
 import org.jspecify.annotations.Nullable;
+import org.springframework.core.annotation.Order;
+import org.springframework.core.Ordered;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
@@ -48,8 +50,13 @@ public class AtomiumFeedAutoConfiguration {
         return new JdbcFeedPointerRepository(jdbcClient);
     }
 
-    /** The bundled logging listener (DEBUG/INFO). Replaceable; an app can also register its own listeners alongside it. */
+    /**
+     * The bundled logging listener (DEBUG/INFO). Replaceable; an app can also register its own listeners
+     * alongside it. Ordered first, so that the log line for an event (e.g. "feed pointer committed")
+     * precedes whatever the app listeners do in reaction to that same event.
+     */
     @Bean
+    @Order(Ordered.HIGHEST_PRECEDENCE)
     @ConditionalOnMissingBean(LoggingFeedEventListener.class)
     public LoggingFeedEventListener loggingFeedEventListener() {
         return new LoggingFeedEventListener();
