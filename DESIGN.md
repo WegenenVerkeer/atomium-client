@@ -35,7 +35,7 @@ Framework-independent Java library for consuming an Atomium feed: a low-level **
 
 - **FeedHandler** — the base: only `getFeedId()`. Implement one of the two variants (each with an opt-in `accepts()` to filter):
 - **EntryFeedHandler** — processes the entries **one by one** (`onEntry`); for self-contained events with local processing.
-- **SimpleProcessingFeedHandler** — processes them **per batch, in two phases**: `process` (outside the transaction: collect, dedupe, look up) and `persist` (inside it, atomically with the feed pointer); for burst feeds and processing with remote lookups.
+- **SimpleProcessingFeedHandler** — processes them **per batch, in two phases**: `process` (outside the transaction: collect, dedupe, look up) and `persist` (inside it, atomically with the feed pointer); for burst feeds and processing with remote lookups. Optionally a post-commit hook **`afterCommit`** (after every durable commit of the feed pointer; best effort, reported via the `afterCommitCompleted` listener event).
 - **ProcessingEntry** — one offered entry: `FeedPageMetadata` + `AtomiumEntry` + decoded content.
 - **ProcessResult** — the result of `process`: the prepared intermediate state `P` + optionally the processed count (default: the number of offered entries).
 - **FeedEventListener** — observability SPI: the single point where the processing reports its events (payloads: `FeedRunResult`, `FeedRunFailure`).

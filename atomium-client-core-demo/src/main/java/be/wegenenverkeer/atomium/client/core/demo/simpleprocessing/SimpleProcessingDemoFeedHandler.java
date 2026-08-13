@@ -1,8 +1,10 @@
 package be.wegenenverkeer.atomium.client.core.demo.simpleprocessing;
 
+import be.wegenenverkeer.atomium.client.fetch.FeedPointer;
 import be.wegenenverkeer.atomium.client.handler.ProcessResult;
 import be.wegenenverkeer.atomium.client.handler.ProcessingEntry;
 import be.wegenenverkeer.atomium.client.handler.SimpleProcessingFeedHandler;
+import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -51,5 +53,17 @@ public class SimpleProcessingDemoFeedHandler implements SimpleProcessingFeedHand
     @Override
     public void persist(List<String> prepared) {
         prepared.forEach(line -> LOG.info("  - {}", line));
+    }
+
+    /**
+     * The optional third phase, after every durable commit, outside any transaction: best-effort side
+     * effects that follow committed progress (in a real app: report the processed position to the source
+     * system). {@code entries} is empty — and {@code processResult} null — for a pointer-only checkpoint.
+     */
+    @Override
+    public void afterCommit(FeedPointer persistedPointer, List<ProcessingEntry<JsonNode>> entries,
+                            @Nullable ProcessResult<List<String>> processResult) {
+        LOG.info("committed up to page '{}' ({} entries in this commit)",
+                persistedPointer.nextFetch().pageLink(), entries.size());
     }
 }

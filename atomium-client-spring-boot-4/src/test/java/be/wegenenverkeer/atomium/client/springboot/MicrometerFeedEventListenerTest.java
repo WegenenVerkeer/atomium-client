@@ -158,6 +158,47 @@ class MicrometerFeedEventListenerTest {
         assertThat(lastSuccess("feed-a")).isNull();
     }
 
+    @Test
+    void theAfterCommitGaugeIsSeededAtActivationIncrementsPerFailureAndResetsOnACleanHook() {
+        assertThat(afterCommitFailures("feed-a")).isNull();   // not activated yet → no series yet
+
+        listener.feedActivated("feed-a");
+        assertThat(afterCommitFailures("feed-a")).isZero();
+
+        listener.afterCommitCompleted("feed-a", new RuntimeException("boom"));
+        listener.afterCommitCompleted("feed-a", new RuntimeException("boom"));
+        assertThat(afterCommitFailures("feed-a")).isEqualTo(2);
+
+        listener.afterCommitCompleted("feed-a", null);   // a clean hook → the effect caught up
+        assertThat(afterCommitFailures("feed-a")).isZero();
+    }
+
+    /**
+     * A feed that goes quiet after a failed hook keeps its streak: the reported position really is still
+     * behind, so an alert on the gauge stays up — deliberately.
+     */
+    @Test
+    void aFeedThatStallsAfterAFailedHookKeepsItsFailureStreak() {
+        listener.feedActivated("feed-a");
+        listener.afterCommitCompleted("feed-a", new RuntimeException("boom"));
+        listener.runCompleted("feed-a", EMPTY);   // quiet polls afterwards do not touch the hook gauge
+
+        assertThat(afterCommitFailures("feed-a")).isEqualTo(1);
+    }
+
+    /** Deactivation removes the series: an ex-leader pod must not keep alerting on a lingering streak. */
+    @Test
+    void removesTheAfterCommitSeriesAtDeactivationAndAnInFlightHookDoesNotResurrectIt() {
+        listener.feedActivated("feed-a");
+        listener.afterCommitCompleted("feed-a", new RuntimeException("boom"));
+
+        listener.feedDeactivated("feed-a");
+        assertThat(afterCommitFailures("feed-a")).isNull();
+
+        listener.afterCommitCompleted("feed-a", new RuntimeException("boom"));
+        assertThat(afterCommitFailures("feed-a")).isNull();
+    }
+
     private double counter(String name, String feedId) {
         return registry.get(name).tag("feed", feedId).counter().count();
     }
@@ -168,6 +209,11 @@ class MicrometerFeedEventListenerTest {
 
     private Double gauge(String feedId) {
         var gauge = registry.find("atomium.runs.consecutive.failures").tag("feed", feedId).gauge();
+        return gauge == null ? null : gauge.value();
+    }
+
+    private Double afterCommitFailures(String feedId) {
+        var gauge = registry.find("atomium.after.commit.consecutive.failures").tag("feed", feedId).gauge();
         return gauge == null ? null : gauge.value();
     }
 

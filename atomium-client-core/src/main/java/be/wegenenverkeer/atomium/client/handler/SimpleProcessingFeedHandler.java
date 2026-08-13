@@ -1,7 +1,9 @@
 package be.wegenenverkeer.atomium.client.handler;
 
+import be.wegenenverkeer.atomium.client.fetch.FeedPointer;
 import be.wegenenverkeer.atomium.client.protocol.AtomiumEntry;
 import be.wegenenverkeer.atomium.client.protocol.FeedPageMetadata;
+import org.jspecify.annotations.Nullable;
 
 import java.util.List;
 
@@ -68,4 +70,29 @@ public interface SimpleProcessingFeedHandler<C, P> extends FeedHandler<C> {
      * @param prepared the intermediate state returned by {@link #process}
      */
     void persist(P prepared);
+
+    /**
+     * Post-commit hook, on the feed thread, <em>outside</em> any transaction, after <em>every</em> durable
+     * commit of the feed pointer (and after the {@code feedPointerAdvanced} listeners). The place for domain
+     * side effects that follow committed progress, such as reporting the processed position to the source
+     * system. The hook decides for itself what interests it: every pointer commit, or only commits that
+     * persisted a batch ({@code entries} non-empty) — note that the committed pointer may sit past the last
+     * processed entry (a checkpoint also advances it over entries {@link #accepts} rejected).
+     *
+     * <p><b>Best effort</b>: running after the transaction means, trivially, no transactional guarantee — a
+     * crash between the commit and this hook skips the call, and the next commit simply reports the then
+     * current state. An effect that must not get lost belongs in {@link #persist} instead, inside the
+     * transaction. <b>A failing hook does not break the run</b>; its outcome is reported through
+     * {@link FeedEventListener#afterCommitCompleted} — the signal to alert on when the effect must not
+     * silently stall.
+     *
+     * @param persistedPointer the feed pointer this commit persisted
+     * @param entries          the entries of the batch this commit persisted, as handed to {@link #process};
+     *                         empty for a pointer-only checkpoint (an empty or entirely filtered-out stretch)
+     * @param processResult    what {@link #process} returned for that batch; {@code null} for a pointer-only
+     *                         checkpoint
+     */
+    default void afterCommit(FeedPointer persistedPointer, List<ProcessingEntry<C>> entries,
+                             @Nullable ProcessResult<P> processResult) {
+    }
 }

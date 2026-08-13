@@ -12,6 +12,7 @@ import be.wegenenverkeer.atomium.client.protocol.FeedPageMetadata;
 import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.slf4j.LoggerFactory;
@@ -21,6 +22,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
+import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -394,6 +396,126 @@ class FeedConsumerTest {
             assertThat(eventListener.pointerCommits()).isEmpty();
             assertThat(eventListener.events()).endsWith("runFailed(1)");
             assertThat(transactions.rollbacks()).isEqualTo(1);
+        }
+    }
+
+    /**
+     * The post-commit hook of the {@link SimpleProcessingFeedHandler} tier: after every commit of the feed
+     * pointer the handler's {@code afterCommit} runs — with the batch that commit persisted, or with an
+     * empty batch on a pointer-only checkpoint — and its outcome reaches the listeners as
+     * {@code afterCommitCompleted}.
+     */
+    @Nested
+    class AfterCommitHook {
+
+        /** Every batch commit is followed by the hook, with that batch, its {@code P} and the pointer. */
+        @Test
+        void runsAfterEveryBatchCommitWithTheCommittedBatchAndThePersistedPointer() {
+            FeedRuntime runtime = batchRuntime(3);
+            batchHandler.recordAfterCommit();
+
+            consume(runtime);
+
+            assertThat(batchHandler.invocations()).containsExactly(
+                    "process(id-001=alfa, id-002=beta, id-003=alfa)",
+                    "persist(id-001=alfa, id-002=beta, id-003=alfa)",
+                    "afterCommit(id-001=alfa, id-002=beta, id-003=alfa -> "
+                            + "id-001=alfa, id-002=beta, id-003=alfa @ /0)",
+                    "process(id-004=gamma, id-005=beta, id-006=alfa)",
+                    "persist(id-004=gamma, id-005=beta, id-006=alfa)",
+                    "afterCommit(id-004=gamma, id-005=beta, id-006=alfa -> "
+                            + "id-004=gamma, id-005=beta, id-006=alfa @ /1)",
+                    "process(id-007=delta)",
+                    "persist(id-007=delta)",
+                    "afterCommit(id-007=delta -> id-007=delta @ /1)");
+        }
+
+        /**
+         * The hook runs outside any transaction and only after the {@code feedPointerAdvanced} listeners: the
+         * commit log line and metrics never wait on it.
+         */
+        @Test
+        void runsOutsideAnyTransactionAfterTheFeedPointerAdvancedListeners() {
+            batchHandler.recordAfterCommit();
+            batchHandler.recordTransactionScope(transactions);
+            FeedRuntime runtime = runtime(batchHandler, batchFeed(), feed -> feed
+                    .maxProcessingSize(100)   // threshold never reached → one batch, one commit at the end
+                    .addListener(new FeedEventListener() {
+                        @Override
+                        public void feedPointerAdvanced(String feedId, FeedPointer feedPointer,
+                                                        FeedRunResult sincePreviousCommit,
+                                                        @Nullable OffsetDateTime latestEventUpdated) {
+                            batchHandler.invocations().add("feedPointerAdvanced");
+                        }
+                    }));
+
+            consume(runtime);
+
+            String batch = "id-001=alfa, id-002=beta, id-003=alfa, id-004=gamma, id-005=beta, id-006=alfa, "
+                    + "id-007=delta";
+            assertThat(batchHandler.invocations()).containsExactly(
+                    "process(%s) [inTransaction=false]".formatted(batch),
+                    "persist(%s) [inTransaction=true]".formatted(batch),
+                    "feedPointerAdvanced",
+                    "afterCommit(%s -> %s @ /1) [inTransaction=false]".formatted(batch, batch));
+        }
+
+        /** A clean hook is reported to the listeners: {@code afterCommitCompleted} without a failure. */
+        @Test
+        void aCleanHookIsReportedThroughAfterCommitCompleted() {
+            FeedRuntime runtime = batchRuntime(100);
+
+            consume(runtime);
+
+            assertThat(eventListener.events()).containsSubsequence(
+                    "feedPointerAdvanced(lastEvent=/1#id-007 nextFetch=/1?after=id-007)",
+                    "afterCommitCompleted",
+                    "runCompleted(read=7, accepted=7, processed=7)");
+        }
+
+        /**
+         * A pointer-only checkpoint (an all-filtered stretch) persisted no batch, but the pointer did
+         * advance — the hook still runs, with an empty batch: whether that interests the handler is the
+         * handler's call.
+         */
+        @Test
+        void aPointerOnlyCheckpointRunsTheHookWithAnEmptyBatch() {
+            FeedRuntime runtime = batchRuntime(3);
+            batchHandler.recordAfterCommit();
+            batchHandler.acceptOnly(content -> false);
+
+            consume(runtime);
+
+            // the two boundary checkpoints (see pointerCommits): both reach the hook without a batch
+            assertThat(batchHandler.invocations()).containsExactly(
+                    "afterCommit(nothing @ /1)",
+                    "afterCommit(nothing @ /1)");
+            assertThat(eventListener.pointerCommits()).hasSize(2);
+            assertThat(eventListener.events())
+                    .filteredOn(event -> event.startsWith("afterCommitCompleted"))
+                    .hasSize(2);
+        }
+
+        /**
+         * A failing hook does not fail the run — the batch is committed and a retry would not re-run the
+         * hook — but every failure reaches the listeners through {@code afterCommitCompleted}.
+         */
+        @Test
+        void aFailingHookDoesNotFailTheRunAndItsFailureReachesTheListeners() {
+            FeedRuntime runtime = batchRuntime(3);
+            batchHandler.failInAfterCommit();
+
+            consume(runtime);
+
+            // all three batches committed: the failing hook never broke the run
+            assertThat(eventListener.pointerCommits()).hasSize(3);
+            assertThat(eventListener.events())
+                    .filteredOn(event -> event.startsWith("afterCommitCompleted"))
+                    .containsExactly(
+                            "afterCommitCompleted(failure=test handler fails deliberately in afterCommit)",
+                            "afterCommitCompleted(failure=test handler fails deliberately in afterCommit)",
+                            "afterCommitCompleted(failure=test handler fails deliberately in afterCommit)");
+            assertThat(eventListener.events()).endsWith("runCompleted(read=7, accepted=7, processed=7)");
         }
     }
 

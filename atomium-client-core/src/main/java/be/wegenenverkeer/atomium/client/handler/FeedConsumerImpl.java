@@ -278,7 +278,7 @@ class FeedConsumerImpl<T> implements FeedConsumer, EntryPusher {
                 case IDLE -> {
                     if (!pendingPointer.equals(persistedPointer)) {
                         transactions.inTransactionWithoutResult(() -> writeFeedPointer(pendingPointer));
-                        afterCommit();
+                        pointerCommitted();
                     }
                 }
                 case BUFFERING -> {
@@ -316,17 +316,33 @@ class FeedConsumerImpl<T> implements FeedConsumer, EntryPusher {
                 processor.persist();
                 writeFeedPointer(pendingPointer);
             });
-            afterCommit();
+            pointerCommitted();
         }
 
-        /** Shared post-commit bookkeeping: the pointer advanced, the safety-net window and delta reset. */
-        private void afterCommit() {
+        /**
+         * Shared post-commit bookkeeping for every commit: the pointer advanced, the safety-net window and
+         * delta reset, and the handler's post-commit hook runs. The hook comes after the
+         * {@code feedPointerAdvanced} listeners, so the commit log line and metrics never wait on it. A
+         * failing hook does not fail the run — the commit already happened — but is reported to the
+         * listeners; {@code afterCommitCompleted} fires exactly when a hook ran, with its outcome.
+         */
+        private void pointerCommitted() {
             persistedPointer = pendingPointer;
             pagesSinceCommit = 0;
             windowExhaustedDeclineLogged = false;
             OffsetDateTime covered = latestOfferedUpdated;
             latestOfferedUpdated = null;
             listeners.feedPointerAdvanced(feedId, persistedPointer, deltaSincePreviousCommit(), covered);
+            boolean hookRan;
+            try {
+                hookRan = processor.afterCommit(persistedPointer);
+            } catch (RuntimeException hookFailure) {
+                listeners.afterCommitCompleted(feedId, hookFailure);
+                return;
+            }
+            if (hookRan) {
+                listeners.afterCommitCompleted(feedId, null);
+            }
         }
 
         /** The counters of what was added since the previous commit; the committed state becomes the new reference point. */

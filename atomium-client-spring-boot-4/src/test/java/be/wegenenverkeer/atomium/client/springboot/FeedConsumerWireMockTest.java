@@ -397,9 +397,83 @@ class FeedConsumerWireMockTest extends AbstractAtomiumFeedIT {
                     "lastEvent=/1#id-007 nextFetch=/1?after=id-007");
             assertThat(eventListener.events()).endsWith(
                     "feedPointerAdvanced(lastEvent=/1#id-007 nextFetch=/1?after=id-007)",
+                    "afterCommitCompleted",
                     "pageProcessed(/1)",
                     "endOfFeedReached",
                     "runCompleted(read=7, accepted=2, processed=1)");
+        }
+    }
+
+    /**
+     * The post-commit hook ({@code SimpleProcessingFeedHandler#afterCommit}) end-to-end through the whole
+     * stack: after every commit of the feed pointer the handler's hook runs — with the batch that commit
+     * persisted (or an empty batch on a pointer-only checkpoint) and the persisted pointer — following the
+     * {@code feedPointerAdvanced} listeners, and its outcome reaches the listeners as
+     * {@code afterCommitCompleted}. The fine-grained scenarios live in the core {@code FeedConsumerTest}.
+     */
+    @Nested
+    class AfterCommitHook {
+
+        @Test
+        void runsAfterEveryBatchCommitAndIsReportedAfterTheCommitEvent() {
+            stubBatchFeed();
+            batchHandler.recordAfterCommit();
+
+            consume(batchHandler.getFeedId());
+
+            assertThat(batchHandler.invocations()).containsExactly(
+                    "process(id-001=alfa, id-002=beta, id-003=alfa)",
+                    "persist(id-003=alfa, id-002=beta)",
+                    "afterCommit(id-001=alfa, id-002=beta, id-003=alfa -> id-003=alfa, id-002=beta @ /0)",
+                    "process(id-004=gamma, id-005=beta, id-006=alfa)",
+                    "persist(id-004=gamma, id-005=beta, id-006=alfa)",
+                    "afterCommit(id-004=gamma, id-005=beta, id-006=alfa -> "
+                            + "id-004=gamma, id-005=beta, id-006=alfa @ /1)",
+                    "process(id-007=delta)",
+                    "persist(id-007=delta)",
+                    "afterCommit(id-007=delta -> id-007=delta @ /1)");
+            assertThat(eventListener.events()).containsSubsequence(
+                    "feedPointerAdvanced(lastEvent=/0#id-003 nextFetch=/0?after=id-003)",
+                    "afterCommitCompleted",
+                    "feedPointerAdvanced(lastEvent=/0#id-006 nextFetch=/1)",
+                    "afterCommitCompleted",
+                    "feedPointerAdvanced(lastEvent=/1#id-007 nextFetch=/1?after=id-007)",
+                    "afterCommitCompleted");
+        }
+
+        /** A failing hook does not fail the run; the failure reaches the listeners. */
+        @Test
+        void aFailingHookDoesNotFailTheRunAndItsFailureReachesTheListeners() {
+            stubBatchFeed();
+            batchHandler.failInAfterCommit();
+
+            consume(batchHandler.getFeedId());
+
+            // all three batches committed: the failing hook never broke the run
+            assertThat(eventListener.pointerCommits()).hasSize(3);
+            assertThat(eventListener.events())
+                    .contains("afterCommitCompleted(failure=test handler fails deliberately in afterCommit)")
+                    .endsWith("runCompleted(read=7, accepted=7, processed=6)");
+        }
+
+        /**
+         * A pointer-only checkpoint (an all-filtered stretch) persisted no batch, but the pointer did
+         * advance — the hook still runs, with an empty batch.
+         */
+        @Test
+        void aPointerOnlyCheckpointRunsTheHookWithAnEmptyBatch() {
+            stubBatchFeed();
+            batchHandler.recordAfterCommit();
+            batchHandler.acceptOnly(content -> false);
+
+            consume(batchHandler.getFeedId());
+
+            assertThat(batchHandler.invocations()).containsExactly(
+                    "afterCommit(nothing @ /1)",
+                    "afterCommit(nothing @ /1)");
+            assertThat(eventListener.events())
+                    .filteredOn(event -> event.startsWith("afterCommitCompleted"))
+                    .hasSize(2);
         }
     }
 

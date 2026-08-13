@@ -1,5 +1,6 @@
 package be.wegenenverkeer.atomium.client.handler;
 
+import be.wegenenverkeer.atomium.client.fetch.FeedPointer;
 import be.wegenenverkeer.atomium.client.protocol.AtomiumEntry;
 import be.wegenenverkeer.atomium.client.protocol.FeedPageMetadata;
 import org.jspecify.annotations.Nullable;
@@ -19,7 +20,8 @@ import java.util.stream.Collectors;
  *
  * <p>Configurable per test: the {@code accepts} filter ({@link #acceptOnly}), an application-style dedup on
  * {@code aField} that reports its own processed count ({@link #dedupeOnAField()}), deliberate failures in either
- * phase ({@link #failInProcess()} / {@link #failInPersist()}), transaction-scope recording
+ * phase or in the hook ({@link #failInProcess()} / {@link #failInPersist()} / {@link #failInAfterCommit()}),
+ * transaction-scope recording
  * ({@link #recordTransactionScope}) and a hook that runs when a given entry is offered to {@code accepts}
  * ({@link #whenOffered} — handy to force an interruption mid-page).
  */
@@ -30,6 +32,8 @@ class RecordingSimpleProcessingFeedHandler implements SimpleProcessingFeedHandle
     private volatile boolean dedupeOnAField;
     private volatile boolean failInProcess;
     private volatile boolean failInPersist;
+    private volatile boolean failInAfterCommit;
+    private volatile boolean recordAfterCommit;
     private volatile @Nullable RecordingFeedTransactions transactionScope;
     private volatile @Nullable String offeredTrigger;
     private volatile @Nullable Runnable offeredAction;
@@ -75,6 +79,21 @@ class RecordingSimpleProcessingFeedHandler implements SimpleProcessingFeedHandle
         invocations.add("persist(%s)%s".formatted(prepared, transactionSuffix()));
     }
 
+    @Override
+    public void afterCommit(FeedPointer persistedPointer, List<ProcessingEntry<TestFeedEntry>> entries,
+                            @Nullable ProcessResult<String> processResult) {
+        if (failInAfterCommit) {
+            throw new IllegalStateException("test handler fails deliberately in afterCommit");
+        }
+        if (recordAfterCommit) {
+            // the batch plus P prove what the hook received; the pointer as the page it points the next fetch at
+            String batch = processResult == null ? "nothing"
+                    : "%s -> %s".formatted(show(entries), processResult.value());
+            invocations.add("afterCommit(%s @ %s)%s".formatted(
+                    batch, persistedPointer.nextFetch().pageLink(), transactionSuffix()));
+        }
+    }
+
     /** Let through only the entries for which this holds (the {@code accepts} filter). */
     void acceptOnly(Predicate<TestFeedEntry> accept) {
         this.accept = accept;
@@ -91,6 +110,15 @@ class RecordingSimpleProcessingFeedHandler implements SimpleProcessingFeedHandle
 
     void failInPersist() {
         this.failInPersist = true;
+    }
+
+    void failInAfterCommit() {
+        this.failInAfterCommit = true;
+    }
+
+    /** Also record every {@code afterCommit} invocation (opt-in: most tests assert only the two phases). */
+    void recordAfterCommit() {
+        this.recordAfterCommit = true;
     }
 
     /** Append {@code [inTransaction=…]} to every process/persist line, so a test can assert the phase scopes. */

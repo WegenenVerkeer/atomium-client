@@ -146,6 +146,27 @@ the code. See `DESIGN.md` for the class overview and the javadoc for the details
   construction; the metrics listener seeds/removes the `atomium.feed.last.success.time` gauge on them).
   Logging (`LoggingFeedEventListener`) and metrics (`MicrometerFeedEventListener`) are both just listeners — by
   design.
+- **The `afterCommit` hook (two-phase tier only).** Listeners are pure observability; post-commit *domain*
+  work (e.g. reporting the processed position to the source system) has a first-class home in
+  `SimpleProcessingFeedHandler#afterCommit`. Order per commit: tx commit → `feedPointerAdvanced`
+  listeners → `handler.afterCommit` → `afterCommitCompleted(failure|null)`. **Listeners first, hook after**
+  — the pointer is already advanced at that moment, so the commit log line and the metrics (incl.
+  `atomium.feed.last.success.time`) never wait on a possibly slow hook, and the logging-listener-first log
+  order stays intact. The hook fires on **every** commit — with the batch that commit persisted, or with an
+  empty batch (`entries` empty, `processResult` null) on a pointer-only checkpoint; the *handler* decides
+  what interests it (every pointer commit, or only persisted batches). Best effort, trivially: running
+  after the transaction means no transactional guarantee — a crash between commit and hook skips the call
+  and the next commit reports the then current state; an effect that must not get lost goes in `persist`.
+  A failing hook does not fail the run (the commit already happened): the consumer catches and reports it
+  via `afterCommitCompleted`, which *always* fires when a hook ran — success and failure both — so the
+  `atomium.after.commit.consecutive.failures` gauge can increment *or* reset in one callback, atomically
+  (a fires-on-failure-only event would force the reset onto `feedPointerAdvanced`, with a scrape race
+  between reset and increment). The gauge follows the `atomium.feed.last.success.time` lifecycle: seeded at
+  activation, removed at deactivation (an ex-leader pod must not keep alerting on a stale streak); alert
+  shape: `atomium_after_commit_consecutive_failures > 0` with a `for:` delay — not an `increase()` on a
+  `_total` counter, which keeps firing ~15 minutes after a single hiccup. `EntryFeedHandler` (commit per
+  entry) deliberately has **no** such hook yet — that is a later, separate question, to be designed when a
+  real user shows up.
 - **Health.** `AtomiumFeedHealthIndicator` per feed under a single contributor "atomium"
   (`AtomiumHealthAutoConfiguration`, conditioned on the health classes — `spring-boot-health` is an *optional*
   dep — and `atomium.health.enabled`). Pull-based on the `FeedRuntime` state (runner + the internal progress
@@ -198,6 +219,9 @@ choices made, not this iteration or conversation. Concretely:
 - Javadoc says what a type/method **does and how to use it** (contract, parameters, defaults, fail-fast
   behavior); error messages and docs in core stay framework-neutral.
 - When in doubt: would a new user learning the final API get anything out of this? No → no javadoc.
+- **The demos are documentation too**: a new feature the lib supports must also appear in the demo
+  applications (`atomium-client-core-demo`, `atomium-client-spring-boot-4-demo`) — a developer who never
+  sees a feature demonstrated may never realise it exists.
 
 ## Testing convention
 

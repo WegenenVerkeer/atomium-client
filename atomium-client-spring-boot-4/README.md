@@ -80,6 +80,7 @@ class MyEventFeedHandler implements EntryFeedHandler<MyEvent> {
 | `getFeedId()` | yes | The unique identity of the feed: at once the config key (`atomium.feeds.<feedId>`), the DB key, the thread name and the admin URL segment. Short and stable, **without dots**. |
 | `onEntry(pageMetadata, entry, content)` | yes (`EntryFeedHandler`) | For each event, in read order (oldest first). Its effect is committed in one transaction together with the advanced feed pointer. |
 | `process(entries)` / `persist(prepared)` | yes (`SimpleProcessingFeedHandler`) | Per batch, in two phases — see below. |
+| `afterCommit(persistedPointer, entries, processResult)` | no (`SimpleProcessingFeedHandler`) | Post-commit hook, after every durable commit of the feed pointer — see below. Default: nothing. |
 | `accepts(pageMetadata, entry, content)` | no | Is this entry relevant? `false` → the framework ignores it entirely and simply advances the pointer past it. Default: everything is relevant. |
 | `pushEntry(content)` | no (opt-in, via `FeedPusher`) | Process an item **as if** it were on the feed (via the admin endpoint). Implement the separate `FeedPusher<C>` interface next to the handler variant; without it, push is unsupported. |
 
@@ -148,6 +149,28 @@ A few properties you should know:
   `ProcessResult.of(value, processed)`, and it may be smaller or larger than the number of offered entries.
   Left unreported it defaults to the number of offered entries.
 
+#### The post-commit hook: `afterCommit`
+
+Some feeds ask for a domain side effect *after* committed progress — the classic example: reporting back
+to the source system up to which event you are in sync, so it can bound what other consumers see. That call
+must not live in `persist` (no network inside the transaction) and it is not observability either — it is
+domain work that belongs with the handler. Implement `afterCommit(persistedPointer, entries, processResult)`:
+it runs on the feed thread, **outside** any transaction, after **every** durable commit of the feed pointer
+(and after the `feedPointerAdvanced` listeners) — with the batch that commit persisted, or with an empty
+`entries` (and a `null` `processResult`) for a pointer-only checkpoint past an empty or entirely
+filtered-out stretch. You decide what interests you: every pointer commit, or only commits that persisted a
+batch — note that the committed pointer may sit past the last processed entry (a checkpoint also advances
+it over entries `accepts` rejected).
+
+Two things to know before you put an effect here:
+
+- **Best effort** — trivially so: running after the transaction means no transactional guarantee. A crash
+  between the commit and the hook skips the call; the next commit simply reports the then current state. An
+  effect that must not get lost belongs in `persist`, inside the transaction.
+- **A failing hook does not fail the run** (the commit already happened). The failure is reported through
+  the `afterCommitCompleted` listener event and the `atomium_after_commit_consecutive_failures` gauge —
+  alert on that gauge when the effect must not silently stall (see [Metrics](#metrics-micrometer)).
+
 #### The safety net: `processing.max-uncommitted-pages`
 
 A feed that filters heavily (`accepts`) sometimes rarely reaches its threshold. And as long as nothing is
@@ -176,6 +199,7 @@ its simplest consumer.
 | `pageFetched(feedId, pageMetadata, entryCount)` | A page was fetched from the source. |
 | `feedNotModified(feedId)` | The source returned `304 Not Modified` — nothing new since the previous poll. |
 | `feedPointerAdvanced(feedId, feedPointer, sincePreviousCommit, latestEventUpdated)` | The feed pointer was committed — the recovery point after a crash. `sincePreviousCommit` carries the counters of what was added since the previous commit; `latestEventUpdated` the `updated` of the youngest entry the commit covered (the freshness signal). |
+| `afterCommitCompleted(feedId, failure)` | The handler's post-commit hook (`afterCommit`) ran, cleanly (`failure` is `null`) or not. Fires exactly when a hook ran: after every commit of a feed whose handler tier has the hook, following `feedPointerAdvanced`. |
 | `pageProcessed(feedId, pageMetadata)` | A page was traversed (not necessarily committed: a batch may run across page boundaries). |
 | `endOfFeedReached(feedId)` | The head was reached. |
 | `runInterrupted(feedId, result)` / `runCompleted(feedId, result)` | The run stopped, cleanly interrupted or normally. |
@@ -208,6 +232,8 @@ registry; disable it with `atomium.metrics.enabled=false`. All series are tagged
 | `atomium_pages_fetched_total{feed}` | counter | fetched HTTP pages |
 | `atomium_polls_not_modified_total{feed}` | counter | polls that got a `304 Not Modified` |
 | `atomium_runs_consecutive_failures{feed}` | gauge | current number of consecutive failures (0 = healthy) |
+| `atomium_feed_last_success_time_seconds{feed}` | gauge | the last moment the feed demonstrably made healthy progress: seeded at activation, advanced on every commit and every completed run (also an empty poll or a 304), removed at deactivation — the staleness signal for a "feed consumer down" alert |
+| `atomium_after_commit_consecutive_failures{feed}` | gauge | current number of consecutive `afterCommit`-hook failures (0 = healthy): seeded at activation, removed at deactivation. A hook failure does not fail the run, so this gauge is the alerting signal for it |
 
 The `spring-boot-4-demo` has this enabled: start it and look at `/management/prometheus`.
 

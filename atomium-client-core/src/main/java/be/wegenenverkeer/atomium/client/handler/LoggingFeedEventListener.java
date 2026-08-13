@@ -13,7 +13,8 @@ import java.time.format.DateTimeFormatter;
 /**
  * The bundled standard {@link FeedEventListener}: logs the feed events at DEBUG (fine-grained processing
  * details, and everything a quiet poll produces), INFO (the run start, and pages/runs that actually deliver
- * events) and WARN (on a failed run). A quiet poll of an idle feed thus costs one INFO line (the run start;
+ * events), WARN (on a failed run) and ERROR (on a failed {@code afterCommit} hook — the run continues, so
+ * this line is all the failure gets). A quiet poll of an idle feed thus costs one INFO line (the run start;
  * the {@code FeedRunner} adds its completion line with the next poll moment) instead of a five-line block
  * per poll. Doubles as proof that the SPI works and as a usable default; replaceable, and an app can put its
  * own listeners (metrics/health) alongside it.
@@ -55,6 +56,16 @@ public class LoggingFeedEventListener implements FeedEventListener {
                 feedId, feedPointer.nextFetch().pageLink(),
                 sincePreviousCommit.read(), sincePreviousCommit.accepted(), sincePreviousCommit.processed(),
                 latestEventUpdated == null ? "" : "; latest event " + TIMESTAMP.format(latestEventUpdated));
+    }
+
+    @Override
+    public void afterCommitCompleted(String feedId, @Nullable Throwable failure) {
+        if (failure != null) {
+            // the run does not fail (the batch is committed), so this is the only log line the failure gets
+            LOG.error("feed '{}': the afterCommit hook failed; the run continues", feedId, failure);
+        } else {
+            LOG.debug("feed '{}': afterCommit hook completed", feedId);
+        }
     }
 
     @Override

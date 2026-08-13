@@ -1,10 +1,12 @@
 package be.wegenenverkeer.atomium.client.springboot;
 
+import be.wegenenverkeer.atomium.client.fetch.FeedPointer;
 import be.wegenenverkeer.atomium.client.handler.ProcessResult;
 import be.wegenenverkeer.atomium.client.handler.ProcessingEntry;
 import be.wegenenverkeer.atomium.client.handler.SimpleProcessingFeedHandler;
 import be.wegenenverkeer.atomium.client.protocol.AtomiumEntry;
 import be.wegenenverkeer.atomium.client.protocol.FeedPageMetadata;
+import org.jspecify.annotations.Nullable;
 
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -32,6 +34,8 @@ public abstract class RecordingBatchedFeedHandler
     private volatile Predicate<FooAppFeedEntry> accept = content -> true;
     private volatile boolean failInProcess;
     private volatile boolean failInPersist;
+    private volatile boolean failInAfterCommit;
+    private volatile boolean recordAfterCommit;
 
     @Override
     public boolean accepts(FeedPageMetadata pageMetadata, AtomiumEntry entry, FooAppFeedEntry content) {
@@ -59,6 +63,20 @@ public abstract class RecordingBatchedFeedHandler
         invocations.add("persist(%s)".formatted(prepared));
     }
 
+    @Override
+    public void afterCommit(FeedPointer persistedPointer, List<ProcessingEntry<FooAppFeedEntry>> entries,
+                            @Nullable ProcessResult<String> processResult) {
+        if (failInAfterCommit) {
+            throw new IllegalStateException("test handler fails deliberately in afterCommit");
+        }
+        if (recordAfterCommit) {
+            // the batch plus P prove what the hook received; the pointer as the page it points the next fetch at
+            String batch = processResult == null ? "nothing"
+                    : "%s -> %s".formatted(show(entries), processResult.value());
+            invocations.add("afterCommit(%s @ %s)".formatted(batch, persistedPointer.nextFetch().pageLink()));
+        }
+    }
+
     /** Only lets through the entries for which this holds (the {@code accepts} filter). */
     public void acceptOnly(Predicate<FooAppFeedEntry> accept) {
         this.accept = accept;
@@ -70,6 +88,15 @@ public abstract class RecordingBatchedFeedHandler
 
     public void failInPersist() {
         this.failInPersist = true;
+    }
+
+    public void failInAfterCommit() {
+        this.failInAfterCommit = true;
+    }
+
+    /** Also record every {@code afterCommit} invocation (opt-in: most tests assert only the two phases). */
+    public void recordAfterCommit() {
+        this.recordAfterCommit = true;
     }
 
     /** Stop failing deliberately (the "recovered" half of a crash/retry scenario). */
@@ -87,6 +114,8 @@ public abstract class RecordingBatchedFeedHandler
         accept = content -> true;
         failInProcess = false;
         failInPersist = false;
+        failInAfterCommit = false;
+        recordAfterCommit = false;
     }
 
     private static String show(List<ProcessingEntry<FooAppFeedEntry>> entries) {

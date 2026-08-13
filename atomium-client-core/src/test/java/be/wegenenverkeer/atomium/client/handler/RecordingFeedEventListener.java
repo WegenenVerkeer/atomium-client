@@ -54,6 +54,12 @@ public class RecordingFeedEventListener implements FeedEventListener {
     }
 
     @Override
+    public void afterCommitCompleted(String feedId, @Nullable Throwable failure) {
+        events.add(failure == null ? "afterCommitCompleted"
+                : "afterCommitCompleted(failure=%s)".formatted(failure.getMessage()));
+    }
+
+    @Override
     public void pageProcessed(String feedId, FeedPageMetadata pageMetadata) {
         events.add("pageProcessed(%s)".formatted(page(pageMetadata)));
     }

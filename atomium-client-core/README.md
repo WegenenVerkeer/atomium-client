@@ -89,6 +89,9 @@ If you prefer to have the feed processed declaratively, you implement only a **`
   batch outside the transaction (collect, dedupe, look things up remotely), `persist` writes the prepared
   effect inside the transaction that also advances the feed pointer. For all processing that involves
   remote work — also when every event concerns a single entity — and for feeds that deliver bursts.
+  An optional post-commit hook `afterCommit` runs after every durable commit of the feed pointer, for
+  best-effort domain side effects such as reporting the processed position back to the source (a failing
+  hook does not fail the run and is reported through the `afterCommitCompleted` listener event).
 
 You bundle the handler with the building blocks into a **`Feed`** (via the builder) and let
 **`FeedRuntime`** assemble the machinery from it: walking the feed up to the head, buffering and batching,

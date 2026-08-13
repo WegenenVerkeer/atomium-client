@@ -37,6 +37,7 @@ import java.util.concurrent.atomic.AtomicLong;
  *   <tr><td>{@code atomium.pages.fetched}</td><td>counter</td><td>HTTP pages fetched</td></tr>
  *   <tr><td>{@code atomium.polls.not.modified}</td><td>counter</td><td>polls that got {@code 304 Not Modified}</td></tr>
  *   <tr><td>{@code atomium.runs.consecutive.failures}</td><td>gauge</td><td>current number of consecutive failures (0 = healthy)</td></tr>
+ *   <tr><td>{@code atomium.after.commit.consecutive.failures}</td><td>gauge</td><td>current number of consecutive {@code afterCommit}-hook failures (0 = healthy): seeded at activation, removed at deactivation — a hook failure does not fail the run, so this gauge is the alerting signal for it</td></tr>
  * </table>
  */
 // deliberately in this module despite zero Spring dependencies: we do not consider the listener worth its own
@@ -48,6 +49,7 @@ public class MicrometerFeedEventListener implements FeedEventListener {
     private final MeterRegistry registry;
     // backing stores for the gauges: one atomic per feed, the gauge reads it live
     private final ConcurrentHashMap<String, AtomicInteger> consecutiveFailures = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, AtomicInteger> afterCommitFailures = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, AtomicLong> lastCommit = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, AtomicLong> lastSuccess = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, AtomicLong> lastEvent = new ConcurrentHashMap<>();
@@ -61,6 +63,7 @@ public class MicrometerFeedEventListener implements FeedEventListener {
         // seed at activation: the series exists from the moment the feed is supposed to make progress,
         // so a feed that never gets going alarms by going stale instead of staying invisible
         lastSuccessGauge(feedId).set(registry.config().clock().wallTime());
+        afterCommitFailuresGauge(feedId).set(0);
     }
 
     @Override
@@ -69,6 +72,26 @@ public class MicrometerFeedEventListener implements FeedEventListener {
         if (lastSuccess.remove(feedId) != null) {
             registry.find("atomium.feed.last.success.time").tag(TAG_FEED, feedId).timeGauges()
                     .forEach(registry::remove);
+        }
+        // same for the hook gauge: a lingering failure streak on an ex-leader pod must not keep alerting
+        if (afterCommitFailures.remove(feedId) != null) {
+            registry.find("atomium.after.commit.consecutive.failures").tag(TAG_FEED, feedId).gauges()
+                    .forEach(registry::remove);
+        }
+    }
+
+    @Override
+    public void afterCommitCompleted(String feedId, @Nullable Throwable failure) {
+        // only for an activated feed (feedActivated seeded it): a hook of a run still in flight after a
+        // deactivation must not resurrect the removed series
+        AtomicInteger failures = afterCommitFailures.get(feedId);
+        if (failures == null) {
+            return;
+        }
+        if (failure != null) {
+            failures.incrementAndGet();
+        } else {
+            failures.set(0);
         }
     }
 
@@ -119,6 +142,17 @@ public class MicrometerFeedEventListener implements FeedEventListener {
         return consecutiveFailures.computeIfAbsent(feedId, id -> {
             AtomicInteger counter = new AtomicInteger(0);
             Gauge.builder("atomium.runs.consecutive.failures", counter, AtomicInteger::get)
+                    .tag(TAG_FEED, id)
+                    .register(registry);
+            return counter;
+        });
+    }
+
+    /** The backing counter of the after-commit-failures gauge for this feed; registered at activation. */
+    private AtomicInteger afterCommitFailuresGauge(String feedId) {
+        return afterCommitFailures.computeIfAbsent(feedId, id -> {
+            AtomicInteger counter = new AtomicInteger(0);
+            Gauge.builder("atomium.after.commit.consecutive.failures", counter, AtomicInteger::get)
                     .tag(TAG_FEED, id)
                     .register(registry);
             return counter;

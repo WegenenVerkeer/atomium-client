@@ -1,5 +1,7 @@
 package be.wegenenverkeer.atomium.client.handler;
 
+import be.wegenenverkeer.atomium.client.fetch.FeedPointer;
+
 // Maintainer note — this seam is deliberately package-private. Publishing an internal is additive and
 // non-breaking, un-publishing is breaking: so none of the growth path below gets built (or published) before
 // a real user exists. What we anticipate:
@@ -114,6 +116,17 @@ interface FeedProcessor<C> {
      * rolls back and the run fails (the pointer does not advance → the work is offered again next run).
      */
     void persist();
+
+    /**
+     * The feed pointer has been committed durably; run the handler's post-commit hook, if its tier has one.
+     * Called by the consumer after <em>every</em> commit — a batch commit and a pointer-only checkpoint
+     * alike — outside any transaction, after the {@code feedPointerAdvanced} listeners. Returns whether a
+     * hook ran, so the consumer knows to emit {@code afterCommitCompleted}; a throwing hook propagates (the
+     * consumer catches — it must not fail the run).
+     */
+    default boolean afterCommit(FeedPointer persistedPointer) {
+        return false;
+    }
 
     /** Cumulative count of the entries this run that passed the handler's {@code accepts} filter. */
     int accepted();

@@ -78,6 +78,17 @@ public interface FeedEventListener {
                                      @Nullable OffsetDateTime latestEventUpdated) {
     }
 
+    /**
+     * The handler's post-commit hook ({@code SimpleProcessingFeedHandler#afterCommit}) has run, cleanly
+     * ({@code failure} is {@code null}) or not. Fires exactly when a hook ran: after every commit of a feed
+     * whose handler tier has the hook, following {@link #feedPointerAdvanced} — never for a handler tier
+     * without one. A failing hook does not fail the run (the commit already happened), so this event is the
+     * one place its outcome is observable — alert on consecutive failures when the hook's effect must not
+     * silently stall.
+     */
+    default void afterCommitCompleted(String feedId, @Nullable Throwable failure) {
+    }
+
     /** A page has been fully traversed. Note: that does not necessarily mean a commit happened — a batch may span
      * page boundaries. */
     default void pageProcessed(String feedId, FeedPageMetadata pageMetadata) {

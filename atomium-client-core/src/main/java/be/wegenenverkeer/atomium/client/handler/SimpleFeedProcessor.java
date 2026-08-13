@@ -1,5 +1,6 @@
 package be.wegenenverkeer.atomium.client.handler;
 
+import be.wegenenverkeer.atomium.client.fetch.FeedPointer;
 import org.jspecify.annotations.Nullable;
 
 import java.util.ArrayList;
@@ -23,7 +24,9 @@ class SimpleFeedProcessor<C, P> implements FeedProcessor<C> {
     private final int maxProcessingSize;
 
     private List<ProcessingEntry<C>> buffer = new ArrayList<>();
-    private @Nullable Prepared<P> prepared;
+    // set by process, persisted by persist, reported and cleared by afterCommit — the phases are disjoint
+    // in time because the consumer calls afterCommit immediately after every commit
+    private @Nullable Batch<C, P> batch;
     private int accepted;
     private int processed;
 
@@ -59,24 +62,40 @@ class SimpleFeedProcessor<C, P> implements FeedProcessor<C> {
 
     /** Phase 1: hand the batch to the handler; the prepared state waits for {@link #persist()}. */
     private State process() {
-        List<ProcessingEntry<C>> batch = List.copyOf(buffer);
-        ProcessResult<P> result = handler.process(batch);
+        List<ProcessingEntry<C>> entries = List.copyOf(buffer);
+        ProcessResult<P> result = handler.process(entries);
         Integer reported = result.processed();
-        prepared = new Prepared<>(result.value(), reported != null ? reported : batch.size());
+        batch = new Batch<>(entries, result, reported != null ? reported : entries.size());
         return State.READY;
     }
 
-    /** Phase 2: persist the prepared effect; afterwards the processor is empty again for the next batch. */
+    /**
+     * Phase 2: persist the prepared effect; afterwards the processor is empty again for the next batch. The
+     * persisted batch is kept for the post-commit hook ({@link #afterCommit}).
+     */
     @Override
     public void persist() {
-        Prepared<P> toPersist = prepared;
-        if (toPersist == null) {
+        if (batch == null) {
             throw new IllegalStateException("persist() called without a processed batch");
         }
-        handler.persist(toPersist.value());
-        processed += toPersist.processed();
-        prepared = null;
+        handler.persist(batch.result().value());
+        processed += batch.processed();
         buffer = new ArrayList<>();
+    }
+
+    /**
+     * The handler's post-commit hook, on every commit: with the batch when this commit persisted one
+     * (the batch travels with exactly its own commit), with an empty batch on a pointer-only checkpoint.
+     * Cleared before the handler runs, so a throwing hook cannot get the batch re-reported at the next commit.
+     */
+    @Override
+    public boolean afterCommit(FeedPointer persistedPointer) {
+        Batch<C, P> committed = batch;
+        batch = null;
+        handler.afterCommit(persistedPointer,
+                committed == null ? List.of() : committed.entries(),
+                committed == null ? null : committed.result());
+        return true;
     }
 
     @Override
@@ -93,6 +112,6 @@ class SimpleFeedProcessor<C, P> implements FeedProcessor<C> {
         return buffer.isEmpty() ? State.IDLE : State.BUFFERING;
     }
 
-    private record Prepared<P>(P value, int processed) {
+    private record Batch<C, P>(List<ProcessingEntry<C>> entries, ProcessResult<P> result, int processed) {
     }
 }

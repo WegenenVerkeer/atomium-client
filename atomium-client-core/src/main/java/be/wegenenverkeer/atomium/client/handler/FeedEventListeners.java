@@ -59,6 +59,11 @@ class FeedEventListeners implements FeedEventListener {
     }
 
     @Override
+    public void afterCommitCompleted(String feedId, @Nullable Throwable failure) {
+        dispatch(feedId, listener -> listener.afterCommitCompleted(feedId, failure));
+    }
+
+    @Override
     public void pageProcessed(String feedId, FeedPageMetadata pageMetadata) {
         dispatch(feedId, listener -> listener.pageProcessed(feedId, pageMetadata));
     }
