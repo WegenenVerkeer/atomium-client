@@ -184,7 +184,7 @@ its simplest consumer.
 **The contract:** the callbacks run on the feed thread, always **after** the commit point they belong to — never
 inside an open transaction. What `feedPointerAdvanced` shows you is therefore exactly what a
 crash at that moment would leave behind; work that was rolled back is never reported. A listener that throws does
-not break the run (the failure is logged at WARN and ignored) — but keep implementations light and non-blocking.
+not break the run (the failure is logged at ERROR and ignored) — but keep implementations light and non-blocking.
 
 `FeedRunResult` deliberately carries **three** counters: `read`, `accepted` and `processed`. On a filtering,
 deduplicating feed they diverge widely (e.g. 10,000 → 800 → 120), and that difference is precisely what you want

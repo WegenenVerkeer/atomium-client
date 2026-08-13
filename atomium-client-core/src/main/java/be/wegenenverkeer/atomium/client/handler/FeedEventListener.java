@@ -23,7 +23,7 @@ import java.time.OffsetDateTime;
  * <p><b>Contract:</b> the callbacks run on the feed thread, always <em>after</em> the commit point they belong to —
  * never inside an open transaction. {@link #feedPointerAdvanced} therefore only fires
  * once the commit has succeeded: what you see here is what a crash at that moment would leave behind. A listener that
- * throws an exception does <em>not</em> break the run: the failure is logged (WARN) and ignored. Keep implementations
+ * throws an exception does <em>not</em> break the run: the failure is logged (ERROR) and ignored. Keep implementations
  * light and non-blocking.
  */
 public interface FeedEventListener {

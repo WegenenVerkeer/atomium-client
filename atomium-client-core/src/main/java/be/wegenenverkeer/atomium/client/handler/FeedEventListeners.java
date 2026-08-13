@@ -13,7 +13,7 @@ import java.util.function.Consumer;
 /**
  * Composite that fans out the events of one feed to all its {@link FeedEventListener}s. This is where the hard rule
  * lives that <b>a listener must never break a run</b>: every callback runs in its own try/catch, an exception is
- * logged (WARN) and otherwise ignored. The feed processing only talks to this composite, never to individual
+ * logged (ERROR) and otherwise ignored. The feed processing only talks to this composite, never to individual
  * listeners.
  */
 class FeedEventListeners implements FeedEventListener {
@@ -88,7 +88,9 @@ class FeedEventListeners implements FeedEventListener {
             try {
                 event.accept(listener);
             } catch (RuntimeException e) {
-                LOG.warn("feed '{}': FeedEventListener {} threw an exception; ignored (a listener must not break a run)",
+                // ERROR, not WARN: a throwing listener is always unexpected — "never break a run" is about
+                // control flow, not severity
+                LOG.error("feed '{}': FeedEventListener {} threw an exception; ignored (a listener must not break a run)",
                         feedId, listener.getClass().getName(), e);
             }
         }
