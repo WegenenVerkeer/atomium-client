@@ -7,7 +7,7 @@
 
     <groupId>be.wegenenverkeer</groupId>
     <artifactId>atomium-client</artifactId>
-    <version>4.0.0-SNAPSHOT</version>
+    <version>4.0.1-SNAPSHOT</version>
     <packaging>pom</packaging>
     <name>${project.groupId}:${project.artifactId}</name>
     <description>Java libraries for consuming an Atomium feed from an application.</description>

@@ -7,7 +7,7 @@
     <parent>
         <groupId>be.wegenenverkeer</groupId>
         <artifactId>atomium-client</artifactId>
-        <version>4.0.0-SNAPSHOT</version>
+        <version>4.0.1-SNAPSHOT</version>
     </parent>
 
     <artifactId>atomium-client-restclient</artifactId>
