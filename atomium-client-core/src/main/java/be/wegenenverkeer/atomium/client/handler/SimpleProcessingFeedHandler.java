@@ -34,6 +34,13 @@ import java.util.List;
  * cleanly interrupted, or reading the next entry fails. An implementation of {@code process} must therefore
  * cope with any batch size from 1 up to the maximum — never assume a full batch.
  *
+ * <p><b>Choose the maximum per feed.</b> A batch succeeds or fails as a whole, so when {@code process} calls out
+ * per entry, one failing call fails the batch and every entry in it is retried; the larger the batch, the smaller
+ * the chance that a run gets through while the remote side is partially unhealthy. Keep such feeds small (the
+ * default of {@value FeedDefaults#MAX_PROCESSING_SIZE} blocks only the failing entry); a {@code process} that works
+ * locally or in one bulk call gets a far higher throughput from a large batch, at one transaction and one pointer
+ * commit per batch.
+ *
  * @param <C> the domain type of the entry content
  * @param <P> the prepared intermediate state that {@code process} hands to {@code persist}
  */
