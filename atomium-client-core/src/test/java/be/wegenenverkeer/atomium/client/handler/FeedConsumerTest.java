@@ -275,6 +275,29 @@ class FeedConsumerTest {
         }
 
         /**
+         * Without an explicit {@code maxProcessingSize} the default applies: {@value FeedDefaults#MAX_PROCESSING_SIZE}
+         * accepted entry per batch, so every entry is processed and committed on its own — safe for any handler,
+         * and the size to raise explicitly for a higher throughput.
+         */
+        @Test
+        void processesOneEntryPerBatchByDefault() {
+            FeedRuntime runtime = runtime(batchHandler, batchFeed());
+
+            consume(runtime);
+
+            assertThat(batchHandler.invocations()).containsExactly(
+                    "process(id-001=alfa)", "persist(id-001=alfa)",
+                    "process(id-002=beta)", "persist(id-002=beta)",
+                    "process(id-003=alfa)", "persist(id-003=alfa)",
+                    "process(id-004=gamma)", "persist(id-004=gamma)",
+                    "process(id-005=beta)", "persist(id-005=beta)",
+                    "process(id-006=alfa)", "persist(id-006=alfa)",
+                    "process(id-007=delta)", "persist(id-007=delta)");
+            // one commit per entry, plus the initial-pointer anchor
+            assertThat(transactions.commits()).isEqualTo(8);
+        }
+
+        /**
          * The core of the model: as long as the batch has not been wrapped up, there is <em>no</em> commit — not
          * even on a page boundary. A crash then repeats the whole uncommitted batch, which is the intent.
          */

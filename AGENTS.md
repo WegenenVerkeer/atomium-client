@@ -186,7 +186,11 @@ the code. See `DESIGN.md` for the class overview and the javadoc for the details
   `query-interval`, `initial-feed-pointer`, `backoff`, and `processing.{max-size, max-uncommitted-pages}`. The whole
   `processing.*` group is only valid on a `SimpleProcessingFeedHandler` feed; set on any other handler →
   **fail-fast at startup** (it commits per entry — the threshold is always 1 and the safety net can never
-  fire, so it would be a silent no-op).
+  fire, so it would be a silent no-op). The default `max-size` is **1**, deliberately: the lib cannot know
+  whether `process` calls out per entry, and 1 is the only size that is safe for every handler (a batch fails
+  as a whole, so a large batch over a per-entry remote call stalls the feed as soon as that side is partially
+  unhealthy). A two-phase feed without `max-size` is correct but slow, never unsafe; the README tells users
+  to set it per feed.
 - **Visibility.** `FeedHandler` is deliberately an interface (with default methods), not an abstract
   class: the lib must not claim the user's only superclass. Most internal machinery is deliberately **package-private**; a few types are public solely
   because the `admin` subpackage, the demos, or a `@ConditionalOnMissingBean` override needs them. Keep new

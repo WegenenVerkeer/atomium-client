@@ -12,11 +12,21 @@ check or change (`Upgrade notes`). Internal refactorings and test work do not be
 
 ### Changed
 
+- The default `processing.max-size` (`FeedDefaults.MAX_PROCESSING_SIZE`, the maximum batch size of a
+  `SimpleProcessingFeedHandler` feed without an explicit value) is now `1` instead of `100`: one entry per
+  batch, the only size that is safe for every handler. The spring-boot-4 README explains how to choose the
+  size per feed.
+
 ### Fixed
 
 ### Removed
 
 ### Upgrade notes
+
+- Set `processing.max-size` explicitly on every `SimpleProcessingFeedHandler` feed (`atomium.feeds.<id>.processing.max-size`,
+  or `Feed.Builder.maxProcessingSize` on the hand-assembled path). A feed that relied on the old default
+  now processes one entry per batch, with one transaction and one pointer commit per entry; set `100` to keep
+  its previous behaviour.
 
 ## [4.0.0] - 2026-08-13
 

@@ -93,5 +93,5 @@ atomium:
         type: oldest
       # processing tuning (only meaningful with a SimpleProcessingFeedHandler; on any other handler the whole processing.* group fails fast)
       processing:
-        max-size: 5        # the batch is processed at this many accepted entries; empty -> 100
+        max-size: 5        # the batch is processed at this many accepted entries; empty -> 1
         max-uncommitted-pages: 10  # safety net: ask the processing to wrap up after this many pages without a commit; empty -> 10

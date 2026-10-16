@@ -10,9 +10,10 @@ public final class FeedDefaults {
 
     /**
      * The <em>maximum</em> batch size (in accepted entries) of a {@link SimpleProcessingFeedHandler} without an explicit
-     * {@link Feed#maxProcessingSize()}.
+     * {@link Feed#maxProcessingSize()}: one entry per batch, the only size that is safe for every handler. A handler
+     * whose {@code process} works locally or in bulk wants a far larger size; that is a per-feed choice.
      */
-    public static final int MAX_PROCESSING_SIZE = 100;
+    public static final int MAX_PROCESSING_SIZE = 1;
 
     /** The safety net {@link Feed#maxUncommittedPages()}: ask for a wrap-up after this many pages without a commit. */
     public static final int MAX_UNCOMMITTED_PAGES = 10;

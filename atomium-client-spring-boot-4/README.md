@@ -131,6 +131,27 @@ Note who chooses what: **you choose what a batch does** (`process`/`persist` —
 code), **the operator chooses the size** (`processing.max-size` — tuning, and different per
 environment: the maximum batch size, counted in accepted entries).
 
+**Set `processing.max-size` explicitly for every two-phase feed.** The default is `1`: one entry per batch,
+the only size that is safe for every handler — correct, but slow for a feed with a backlog (one transaction and
+one pointer commit per entry). The right size follows from what `process` does:
+
+- `process` works **locally or in one bulk call** (collect ids, one lookup, a few upserts): take a large batch,
+  hundreds or more — that is what makes the throughput high.
+- `process` **calls out per entry** (a remote lookup or command per event): keep the batch small. A batch
+  succeeds or fails as a whole, so one failing call fails the batch and every entry in it is retried; the
+  larger the batch, the smaller the chance that a run gets through while the remote side is partially
+  unhealthy. Say one of three replicas is unhealthy and the client retries twice; a call then fails with a
+  chance of 1 in 27, and a run succeeds only when every call in the batch succeeds:
+
+  | `max-size` | Chance that a run succeeds |
+  | --- | --- |
+  | 1 | 96 % |
+  | 10 | 69 % |
+  | 100 | 2 % |
+
+  With 100 the feed is effectively stalled until the replica recovers, retrying (and re-doing the work of
+  the successful entries) after every backoff; with 1 it keeps going and only the failing entry waits.
+
 A few properties you should know:
 
 - Entries that `accepts` rejects do not enter the batch and **do not count toward the threshold**.
@@ -289,7 +310,7 @@ Per feed under `atomium.feeds.<feedId>` (map key = `getFeedId()`):
 | `query-interval` | `1m` | Poll frequency: the wait between the end of a successful run and the start of the next. |
 | `initial-feed-pointer.type` | — | Start position of a **new** feed: `oldest` (full history), `now` (only new events), or `pointer` (+ `page-link`). Only used as long as no pointer has been persisted yet. |
 | `backoff.initial-interval` / `.max-interval` / `.multiplier` | `1m` / `1h` / `2` | Exponential backoff on consecutive failed runs. |
-| `processing.max-size` | `100` | Only with a **`SimpleProcessingFeedHandler`**: the **maximum** batch size, counted in accepted entries — batches come out smaller when the safety net, the end of the feed, an interruption or a read failure wraps them up first. |
+| `processing.max-size` | `1` | Only with a **`SimpleProcessingFeedHandler`**: the **maximum** batch size, counted in accepted entries — batches come out smaller when the safety net, the end of the feed, an interruption or a read failure wraps them up first. |
 | `processing.max-uncommitted-pages` | `10` | The **safety net**: once this many pages have been read without a commit, every boundary asks the processing to wrap up, even if the batch isn't full. See [The safety net](#the-safety-net-processingmax-uncommitted-pages) above. The whole `processing.*` group is only valid on a **`SimpleProcessingFeedHandler`** feed; set on any other handler, startup fails (it commits per entry — the threshold is always 1 and the safety net can never fire). |
 
 The HTTP client config (auth, timeouts, …) is environment-specific and doesn't belong here but in your

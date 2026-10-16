@@ -7,7 +7,6 @@ import org.junit.jupiter.api.Test;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThatIllegalStateException;
-import static org.assertj.core.api.Assertions.assertThatNoException;
 
 /**
  * The processing threshold is resolved per handler type (see {@link FeedRuntime#processorFor}).
@@ -25,13 +24,6 @@ class FeedRuntimeTest {
                 .isThrownBy(() -> FeedRuntime.processorFor("feed", handler("feed"), 50))
                 .withMessageContaining("maxProcessingSize")
                 .withMessageContaining("EntryFeedHandler");
-    }
-
-    /** A {@link SimpleProcessingFeedHandler} without an explicit threshold gets the framework default (100). */
-    @Test
-    void aProcessingHandlerWithoutConfigGetsTheDefaultThreshold() {
-        assertThatNoException().isThrownBy(() -> FeedRuntime.processorFor(
-                "feed", batchHandler("feed"), null));
     }
 
     /** A handler with both variants is ambiguous: the framework refuses to silently pick one. */
@@ -77,24 +69,6 @@ class FeedRuntimeTest {
         assertThatIllegalStateException()
                 .isThrownBy(() -> FeedRuntime.processorFor("feed", bare, null))
                 .withMessageContaining("entry callback");
-    }
-
-    private static SimpleProcessingFeedHandler<String, Integer> batchHandler(String feedId) {
-        return new SimpleProcessingFeedHandler<>() {
-            @Override
-            public String getFeedId() {
-                return feedId;
-            }
-
-            @Override
-            public ProcessResult<Integer> process(List<ProcessingEntry<String>> entries) {
-                return ProcessResult.of(entries.size());
-            }
-
-            @Override
-            public void persist(Integer prepared) {
-            }
-        };
     }
 
     private static FeedHandler<String> handler(String feedId) {
