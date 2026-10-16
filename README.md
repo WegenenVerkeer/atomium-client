@@ -142,17 +142,21 @@ module in the release. For example, tag `v4.0.0` publishes version `4.0.0`. To r
 
 1. Make sure the commit to release is on `main`, its CI build is green, and the checked-in project version is
    still a `-SNAPSHOT`.
-2. Create and push an annotated version tag:
+2. In [`CHANGELOG.md`](CHANGELOG.md), turn the `Unreleased` section into the new version (with the date) and
+   start a fresh, empty `Unreleased` section, and update the link definitions at the bottom of the file (a
+   compare link for the new version, `Unreleased` compared against the new tag); commit that to `main`. The
+   GitHub release notes are that version's section.
+3. Create and push an annotated version tag:
 
    ```bash
    git tag -a v4.0.0 -m "Release 4.0.0"
    git push origin v4.0.0
    ```
 
-3. Follow the `Release` GitHub Actions workflow. It derives the release version from the tag, builds and tests
+4. Follow the `Release` GitHub Actions workflow. It derives the release version from the tag, builds and tests
    the complete reactor, signs the published artifacts, and automatically publishes them through the Maven
    Central Portal.
-4. After the release succeeds, set the suite to the next development version, commit the changed POMs, and
+5. After the release succeeds, set the suite to the next development version, commit the changed POMs, and
    push them to `main`. For example:
 
    ```bash

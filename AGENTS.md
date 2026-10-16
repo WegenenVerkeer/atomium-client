@@ -6,6 +6,7 @@
 > - **per-module READMEs** —
 >   `atomium-client-{core,jackson-3,restclient,core-demo,spring-boot-4,spring-boot-4-demo}/README.md`.
 > - **`VERSIONING.md`** — versioning policy.
+> - **`CHANGELOG.md`** — what changed per release and what to check on upgrade.
 > - **`DESIGN.md`** — a short map-with-glossary of the most important classes per module (orientation).
 > - **javadoc + code comments** — the API details.
 >
@@ -219,6 +220,9 @@ choices made, not this iteration or conversation. Concretely:
 - Javadoc says what a type/method **does and how to use it** (contract, parameters, defaults, fail-fast
   behavior); error messages and docs in core stay framework-neutral.
 - When in doubt: would a new user learning the final API get anything out of this? No → no javadoc.
+- **The one place for history is `CHANGELOG.md`** (Keep a Changelog; `Unreleased` on top). Every change a
+  user notices gets a bullet there in the same PR, and anything a user must check or change on upgrade goes
+  under that version's `Upgrade notes`. Internal refactorings and test work stay out of it.
 - **The demos are documentation too**: a new feature the lib supports must also appear in the demo
   applications (`atomium-client-core-demo`, `atomium-client-spring-boot-4-demo`) — a developer who never
   sees a feature demonstrated may never realise it exists.
