@@ -51,7 +51,7 @@ class AtomiumHealthAutoConfigurationTest {
 
         @Bean
         AtomiumProperties atomiumProperties() {
-            return new AtomiumProperties(Map.of(),
+            return new AtomiumProperties(Map.of(), new AtomiumProperties.Runtime(true),
                     new AtomiumProperties.Admin(false, true), new AtomiumProperties.Health(true, 3));
         }
     }

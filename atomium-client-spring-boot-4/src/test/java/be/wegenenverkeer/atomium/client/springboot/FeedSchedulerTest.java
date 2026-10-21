@@ -65,6 +65,33 @@ class FeedSchedulerTest {
         assertThat(runsA.get()).isEqualTo(afterStopA);
     }
 
+    /** A disabled runtime (a standby instance): the tick reaches no feed until {@code enable()}, without a restart. */
+    @Test
+    void aDisabledRuntimeIsNotTickedUntilEnabled() {
+        AtomicInteger runs = new AtomicInteger();
+        Feeds registry = new Feeds(List.of(feed(runner("feed-a", counting(runs), true))), false);
+        ThreadPoolTaskScheduler taskScheduler = new ThreadPoolTaskScheduler();
+        taskScheduler.initialize();
+        FeedScheduler scheduler = new FeedScheduler(registry, taskScheduler, Duration.ofMillis(20));
+        try {
+            scheduler.start();
+            awaitAWhile();
+            assertThat(runs).hasValue(0);
+
+            registry.enable();
+            awaitUntil(() -> runs.get() >= 3);
+
+            registry.disable();
+            awaitAWhile();
+            int afterDisable = runs.get();
+            awaitAWhile();
+            assertThat(runs.get()).isEqualTo(afterDisable);
+        } finally {
+            scheduler.stop();
+            taskScheduler.shutdown();
+        }
+    }
+
     @Test
     void ownPoolIsCreatedOnStartAndShutDownOnStop() {
         Set<Thread> preExisting = schedulerThreads();

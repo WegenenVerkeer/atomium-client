@@ -18,8 +18,9 @@ import java.time.OffsetDateTime;
  * but (unexpectedly) nothing is being published or processed anymore.
  *
  * <p>An <em>inactive</em> feed is deliberately {@code UP} (with {@code active: false} as a detail): a deliberately
- * deactivated feed (jobs pod, migration) must not make a pod unhealthy; accidentally inactive is already
- * signaled by the scheduler's startup WARN.
+ * deactivated feed (migration) must not make a pod unhealthy; accidentally inactive is already signaled by the
+ * WARN when the runtime enables the feeds. Likewise a feed on a <em>disabled</em> runtime ({@code enabled: false}:
+ * this instance does not consume feeds) is {@code UP}.
  */
 public class AtomiumFeedHealthIndicator implements HealthIndicator {
 
@@ -37,6 +38,7 @@ public class AtomiumFeedHealthIndicator implements HealthIndicator {
         int failures = runner.consecutiveFailures();
         Health.Builder health = failures >= failureThreshold ? Health.down() : Health.up();
         health.withDetail("active", runner.isActive())
+                .withDetail("enabled", runner.isEnabled())
                 .withDetail("running", runner.isRunning())
                 .withDetail("consecutiveFailures", failures);
         detailIfPresent(health, "nextRun", runner.nextRun());

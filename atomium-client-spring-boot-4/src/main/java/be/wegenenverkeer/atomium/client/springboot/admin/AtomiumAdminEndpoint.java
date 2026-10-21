@@ -2,10 +2,12 @@ package be.wegenenverkeer.atomium.client.springboot.admin;
 
 import be.wegenenverkeer.atomium.client.exception.FeedStillRunningException;
 import be.wegenenverkeer.atomium.client.handler.FeedRuntime;
+import be.wegenenverkeer.atomium.client.handler.Feeds;
 import be.wegenenverkeer.atomium.client.port.FeedHttpClient;
 import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -26,11 +28,15 @@ import java.util.Map;
 /**
  * Management/diagnostics endpoint for the atomium feeds. Delegates everything to the {@link AtomiumAdminService}.
  * Only registered (via the auto-configuration) in a web application and when
- * {@code atomium.admin.enabled=true}.
+ * {@code atomium.admin.enabled=true}. On an instance whose runtime is disabled (it does not consume feeds) every
+ * operation answers {@code 503 Service Unavailable}.
  *
  * <p><b>Security:</b> every operation starts with a check on the application's (required)
  * {@link AtomiumAdminAuthorization} bean: the read-only diagnostics (GET) via {@code assertReadPermission()},
- * the mutating operations (PUT/POST) via {@code assertWritePermission()}.
+ * the mutating operations (PUT/POST) via {@code assertWritePermission()}. Then it requires the runtime of this
+ * instance to be {@link Feeds#isEnabled() enabled}: on an instance that does not consume feeds the reads would
+ * be misleading and the writes would collide with the instance that does (503, see
+ * {@link AtomiumRuntimeDisabledException}).
  *
  * <p>If {@code atomium.admin.pretty-print=true}, the JSON output is indented; otherwise Spring serializes
  * the objects the usual way.
@@ -41,17 +47,21 @@ public class AtomiumAdminEndpoint {
 
     // every mutating call (PUT/POST) is logged at INFO
     private static final Logger LOG = LoggerFactory.getLogger(AtomiumAdminEndpoint.class);
+    // the Retry-After on a disabled runtime: long enough for a load balancer to pick another instance
+    private static final String RETRY_AFTER_SECONDS = "5";
 
     private final AtomiumAdminService atomiumAdminService;
     private final AtomiumAdminAuthorization authorization;
+    private final Feeds feeds;
     private final JsonMapper jsonMapper;              // to parse raw (JSON) bodies
     // non-null => return indented JSON (pretty print)
     private final @Nullable JsonMapper prettyMapper;
 
     public AtomiumAdminEndpoint(AtomiumAdminService atomiumAdminService, AtomiumAdminAuthorization authorization,
-                                JsonMapper jsonMapper, boolean prettyPrint) {
+                                Feeds feeds, JsonMapper jsonMapper, boolean prettyPrint) {
         this.atomiumAdminService = atomiumAdminService;
         this.authorization = authorization;
+        this.feeds = feeds;
         this.jsonMapper = jsonMapper;
         this.prettyMapper = prettyPrint
                 ? jsonMapper.rebuild().enable(SerializationFeature.INDENT_OUTPUT).build()
@@ -62,6 +72,7 @@ public class AtomiumAdminEndpoint {
     @GetMapping("/feed-pointer")
     public ResponseEntity<?> feedPointers() {
         authorization.assertReadPermission();
+        requireEnabled();
         return json(atomiumAdminService.feedPointers());
     }
 
@@ -69,6 +80,7 @@ public class AtomiumAdminEndpoint {
     @GetMapping("/feed/{feedId}/feed-pointer")
     public ResponseEntity<?> feedPointer(@PathVariable String feedId) {
         authorization.assertReadPermission();
+        requireEnabled();
         return json(atomiumAdminService.feedPointer(feedId));
     }
 
@@ -76,6 +88,7 @@ public class AtomiumAdminEndpoint {
     @GetMapping("/status")
     public ResponseEntity<?> status() {
         authorization.assertReadPermission();
+        requireEnabled();
         return json(atomiumAdminService.statuses());
     }
 
@@ -83,6 +96,7 @@ public class AtomiumAdminEndpoint {
     @GetMapping("/feed/{feedId}/status")
     public ResponseEntity<?> feedStatus(@PathVariable String feedId) {
         authorization.assertReadPermission();
+        requireEnabled();
         return json(atomiumAdminService.status(feedId));
     }
 
@@ -90,6 +104,7 @@ public class AtomiumAdminEndpoint {
     @GetMapping("/config")
     public ResponseEntity<?> config() {
         authorization.assertReadPermission();
+        requireEnabled();
         return json(atomiumAdminService.config());
     }
 
@@ -97,6 +112,7 @@ public class AtomiumAdminEndpoint {
     @GetMapping("/feed/{feedId}/config")
     public ResponseEntity<?> feedConfig(@PathVariable String feedId) {
         authorization.assertReadPermission();
+        requireEnabled();
         return json(atomiumAdminService.config(feedId));
     }
 
@@ -110,6 +126,7 @@ public class AtomiumAdminEndpoint {
     @PutMapping("/feed/{feedId}/feed-pointer")
     public FeedPointerDto setFeedPointer(@PathVariable String feedId, @RequestBody SetFeedPointerCommand command) {
         authorization.assertWritePermission();
+        requireEnabled();
         LOG.info("feed '{}': moving feed-pointer: {}", feedId, command);
         return atomiumAdminService.setFeedPointer(feedId, command);
     }
@@ -118,6 +135,7 @@ public class AtomiumAdminEndpoint {
     @PutMapping("/feed/{feedId}/activate")
     public void activate(@PathVariable String feedId) {
         authorization.assertWritePermission();
+        requireEnabled();
         LOG.info("feed '{}': activating via admin endpoint", feedId);
         atomiumAdminService.activate(feedId);
     }
@@ -126,6 +144,7 @@ public class AtomiumAdminEndpoint {
     @PutMapping("/feed/{feedId}/deactivate")
     public void deactivate(@PathVariable String feedId) {
         authorization.assertWritePermission();
+        requireEnabled();
         LOG.info("feed '{}': deactivating via admin endpoint", feedId);
         atomiumAdminService.deactivate(feedId);
     }
@@ -137,6 +156,7 @@ public class AtomiumAdminEndpoint {
     @PostMapping("/feed/{feedId}/push")
     public void pushEntry(@PathVariable String feedId, @RequestBody String content) {
         authorization.assertWritePermission();
+        requireEnabled();
         // we deliberately do not log the content itself (may be large/sensitive) — only THAT a push happened
         LOG.info("feed '{}': pushing entry via admin endpoint", feedId);
         atomiumAdminService.pushEntry(feedId, content);
@@ -146,6 +166,7 @@ public class AtomiumAdminEndpoint {
     @GetMapping("/feed/{feedId}/feed")
     public ResponseEntity<?> feedHead(@PathVariable String feedId) {
         authorization.assertReadPermission();
+        requireEnabled();
         return json(rawPage(atomiumAdminService.rawPage(feedId, "")));
     }
 
@@ -157,7 +178,15 @@ public class AtomiumAdminEndpoint {
     @GetMapping("/feed/{feedId}/feed/{*pageLink}")
     public ResponseEntity<?> feedPage(@PathVariable String feedId, @PathVariable String pageLink) {
         authorization.assertReadPermission();
+        requireEnabled();
         return json(rawPage(atomiumAdminService.rawPage(feedId, pageLink)));
+    }
+
+    /** @throws AtomiumRuntimeDisabledException if this instance does not consume feeds */
+    private void requireEnabled() {
+        if (!feeds.isEnabled()) {
+            throw new AtomiumRuntimeDisabledException();
+        }
     }
 
     /** An unknown feed → 404 with the message. */
@@ -172,6 +201,17 @@ public class AtomiumAdminEndpoint {
     @ResponseStatus(HttpStatus.CONFLICT)
     public Map<String, String> onFeedStillRunning(FeedStillRunningException e) {
         return Map.of("message", e.getMessage());
+    }
+
+    /**
+     * This instance does not consume feeds (runtime disabled) → 503 with a {@code Retry-After}: behind a load
+     * balancer the retry reaches another instance.
+     */
+    @ExceptionHandler(AtomiumRuntimeDisabledException.class)
+    public ResponseEntity<Map<String, String>> onRuntimeDisabled(AtomiumRuntimeDisabledException e) {
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                .header(HttpHeaders.RETRY_AFTER, RETRY_AFTER_SECONDS)
+                .body(Map.of("message", e.getMessage()));
     }
 
     /** A validation error (disallowed state of a known feed) → 400 with the message. */

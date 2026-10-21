@@ -9,6 +9,7 @@ import be.wegenenverkeer.atomium.client.springboot.FooAppFeedHandler;
 import be.wegenenverkeer.atomium.client.springboot.TestApp;
 import com.github.tomakehurst.wiremock.WireMockServer;
 import org.flywaydb.core.Flyway;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Tag;
@@ -22,6 +23,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
@@ -515,6 +517,85 @@ class AtomiumAdminRestTest {
             } finally {
                 awaitUntil(() -> !runner.isRunning()); // let the run finish before the next test
             }
+        }
+    }
+
+    /**
+     * The runtime of this instance is disabled (a standby that does not consume feeds): every operation, the
+     * reads included, answers 503 with a {@code Retry-After}, so that a retry behind a load balancer lands on the
+     * instance that does consume.
+     */
+    @Nested
+    class IfRuntimeDisabledThen503 {
+
+        @BeforeEach
+        void disableTheRuntime() {
+            feeds.disable();
+        }
+
+        @AfterEach
+        void enableTheRuntimeAgain() {
+            feeds.enable();
+        }
+
+        @Test
+        void status() {
+            expect503(admin.get().uri("/rest/atomium/status").exchange());
+        }
+
+        @Test
+        void feedPointer() {
+            expect503(admin.get().uri("/rest/atomium/feed/{id}/feed-pointer", FEED).exchange());
+        }
+
+        @Test
+        void config() {
+            expect503(admin.get().uri("/rest/atomium/config").exchange());
+        }
+
+        @Test
+        void rawHeadPage() {
+            expect503(admin.get().uri("/rest/atomium/feed/{id}/feed", FEED).exchange());
+        }
+
+        @Test
+        void activate() {
+            expect503(admin.put().uri("/rest/atomium/feed/{id}/activate", FEED).exchange());
+            assertThat(feeds.get(FEED).runner().isActive()).isFalse();
+        }
+
+        @Test
+        void deactivate() {
+            expect503(admin.put().uri("/rest/atomium/feed/{id}/deactivate", FEED).exchange());
+        }
+
+        @Test
+        void setFeedPointer() {
+            expect503(admin.put().uri("/rest/atomium/feed/{id}/feed-pointer", FEED)
+                    .body(new SetFeedPointerCommand("/1", "id-1")).exchange());
+            assertThat(jdbcClient.sql("SELECT count(*) FROM atomium_feed_pointer_v1").query(Long.class).single())
+                    .isZero();
+        }
+
+        @Test
+        void push() {
+            expect503(admin.post().uri("/rest/atomium/feed/{id}/push", FEED)
+                    .body(new FooAppFeedEntry("x")).exchange());
+        }
+
+        /** The 503 is a property of the instance's state, not of the endpoint: enabling the runtime lifts it. */
+        @Test
+        void onceEnabledTheEndpointAnswersAgain() {
+            feeds.enable();
+
+            admin.get().uri("/rest/atomium/status").exchange().expectStatus().isOk();
+        }
+
+        private void expect503(RestTestClient.ResponseSpec response) {
+            response.expectStatus().isEqualTo(HttpStatus.SERVICE_UNAVAILABLE)
+                    .expectHeader().valueEquals(HttpHeaders.RETRY_AFTER, "5")
+                    .expectBody(new ParameterizedTypeReference<Map<String, String>>() { })
+                    .value(body -> assertThat(body.get("message")).contains("disabled on this instance"));
         }
     }
 

@@ -125,9 +125,20 @@ The shutdown order in the example is deliberate: first `scheduler.close()` (no m
 `feeds.close()` (in-flight runs coast to a stop at their next commit point). If you already have your own
 scheduler, leave out the `SimpleFeedScheduler` and call `runtime.runner().tryToStart()` yourself
 frequently (e.g. every second) (non-blocking; the runner itself guards the queryInterval and the backoff,
-and the run executes on the feed's executor). A complete, running example of precisely
-this assembly — both minimal and with all building blocks — is
+and the run executes on the feed's executor); the `Feeds` registry stays, a runtime outside one refuses to
+run. A complete, running example of precisely this assembly — both minimal and with all building blocks — is
 [`atomium-client-core-demo`](../atomium-client-core-demo/README.md).
+
+`activeOnStartup` and `runner().activate()`/`deactivate()` say per feed whether it is *wanted*; the `Feeds`
+registry says per instance whether *this instance consumes feeds at all*: `new Feeds(runtimes,
+enabledOnStartup)` sets the start value (default `true`), `feeds.enable()`/`disable()` switch it at run time
+(a run in flight stops after its next commit point; `feeds.disableAndAwait(timeout)` also waits until it has).
+An application with several instances uses it to choose the consuming one, e.g. from its configuration or a
+leader election, without touching the per-feed `active` state. On a handover, call `disableAndAwait` on the
+instance that stops consuming *before* it gives up what made it the consumer (its leadership, its lifecycle),
+so that the next instance never runs beside a run still in flight. A feed runs when it is active **and** the
+runtime is enabled; the `feedActivated`/`feedDeactivated` events follow that effective state, so a listener (a
+gauge, a health check) only ever sees the feeds this instance consumes.
 
 ### Moving the feed pointer from application code
 

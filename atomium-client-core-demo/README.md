@@ -48,6 +48,9 @@ Start `CoreDemoApplication` (e.g. from the IDE, or `mvn spring-boot:run`). All r
    for the run in flight, moves the pointer to the oldest page and activates it again; the backlog is processed
    once more. With `?to=now` the backlog is skipped instead (`FeedRuntime.resetToOldest` / `resetFromNow`). If the
    run does not stop within the feed's stop timeout, the reset answers 409 and nothing has changed.
+8. `PUT /rest/demo/feeds/disable` — the runtime switch (`Feeds.disable()`): every feed stops, the status keeps
+   them `active`. `PUT /rest/demo/feeds/enable` resumes them. This is what a leader election calls on the
+   instance that loses or wins; the per-feed activate/deactivate is what an operator calls.
 
 ## Start position of a new feed
 

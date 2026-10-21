@@ -87,6 +87,33 @@ class SimpleFeedSchedulerTest {
         }
     }
 
+    /**
+     * A disabled runtime (a standby instance): the tick does nothing, and {@code enable()} makes the ticks reach
+     * the feeds without restarting the scheduler.
+     */
+    @Test
+    void aDisabledRuntimeIsNotTickedUntilEnabled() {
+        AtomicInteger runs = new AtomicInteger();
+        Feeds registry = new Feeds(List.of(feed(runner("feed-a", counting(runs), true))), false);
+        SimpleFeedScheduler scheduler = new SimpleFeedScheduler(registry, TICK);
+        try {
+            scheduler.start();
+            awaitAWhile();
+            assertThat(runs).hasValue(0);
+
+            registry.enable();
+            awaitUntil(() -> runs.get() >= 3);
+
+            registry.disable();
+            awaitAWhile();
+            int afterDisable = runs.get();
+            awaitAWhile();
+            assertThat(runs.get()).isEqualTo(afterDisable);
+        } finally {
+            scheduler.close();
+        }
+    }
+
     @Test
     void startAfterCloseFailsWithAClearError() {
         SimpleFeedScheduler scheduler = new SimpleFeedScheduler(new Feeds(List.of()));

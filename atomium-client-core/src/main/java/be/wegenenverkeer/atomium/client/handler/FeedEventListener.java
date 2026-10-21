@@ -29,17 +29,22 @@ import java.time.OffsetDateTime;
 public interface FeedEventListener {
 
     /**
-     * The feed has been activated (at startup via {@code active-on-startup}, or later by an admin or a
-     * leader-election): from now on it is supposed to make progress. Emitted by the {@code FeedRunner},
-     * only on the transition inactive → active, on the calling thread.
+     * This instance starts consuming the feed: the feed is active (at startup via {@code active-on-startup}, or
+     * later by an admin) <em>and</em> the runtime is enabled (by the {@code Feeds} registry: at its construction
+     * by default, or on {@code Feeds.enable()} after a leader election). From now on it is supposed to make
+     * progress. Emitted by the {@code FeedRunner}, only on that transition of the effective state — not on an
+     * activation while the runtime is disabled — on the calling thread and under the runner's state lock, so that
+     * a listener sees the transitions in the order they happened: do not block on the lifecycle of the feed
+     * ({@code activate}, {@code deactivate}, {@code Feeds.enable}, {@code Feeds.disable}) from here.
      */
     default void feedActivated(String feedId) {
     }
 
     /**
-     * The feed has been deactivated (admin, shutdown, or a leader handing over): it is deliberately no
-     * longer supposed to make progress. Emitted by the {@code FeedRunner}, only on the transition
-     * active → inactive, on the calling thread.
+     * This instance stops consuming the feed: it has been deactivated (admin, shutdown) or the runtime has been
+     * disabled (a leader handing over). It is deliberately no longer supposed to make progress here. Emitted by the
+     * {@code FeedRunner}, only on that transition of the effective state, on the calling thread and under the
+     * runner's state lock (see {@link #feedActivated}).
      */
     default void feedDeactivated(String feedId) {
     }

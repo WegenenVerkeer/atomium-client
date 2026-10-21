@@ -20,21 +20,36 @@ import java.util.Map;
  *       query-interval: 30s
  *       active-on-startup: true
  *       initial-feed-pointer.type: now
+ *   runtime:
+ *     enabled-on-startup: true
  *   admin:
  *     enabled: true
  *     pretty-print: true
  * }</pre>
  *
- * @param feeds  the config per feed, with the {@link FeedHandler#getFeedId() feedId} as map key
- * @param admin  the config of the admin/diagnostics endpoint
- * @param health the config of the health indicator
+ * @param feeds   the config per feed, with the {@link FeedHandler#getFeedId() feedId} as map key
+ * @param runtime the config of the runtime as a whole (all feeds of this instance)
+ * @param admin   the config of the admin/diagnostics endpoint
+ * @param health  the config of the health indicator
  */
 @ConfigurationProperties(prefix = "atomium")
 public record AtomiumProperties(
         @DefaultValue Map<String, AtomiumFeedProperties> feeds,
+        @DefaultValue Runtime runtime,
         @DefaultValue Admin admin,
         @DefaultValue Health health
 ) {
+
+    /**
+     * @param enabledOnStartup whether this instance consumes feeds from the start (default {@code true}). An
+     *                         application with several instances sets it to {@code true} on the one that consumes
+     *                         and {@code false} on the others, or to {@code false} everywhere and lets a leader
+     *                         election call {@code Feeds.enable()}; see {@code Feeds}
+     */
+    public record Runtime(
+            @DefaultValue("true") boolean enabledOnStartup
+    ) {
+    }
 
     /**
      * @param enabled     whether the admin endpoint is registered (default {@code false}; also used directly as
