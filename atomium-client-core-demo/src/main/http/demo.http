@@ -27,6 +27,12 @@ PUT http://localhost:14220/atomium-client-core-demo/rest/demo/feeds/simple/activ
 ### Reset the full-monty feed to the oldest page (safe while active: stop, move, restart) — or ?to=now
 PUT http://localhost:14220/atomium-client-core-demo/rest/demo/feeds/full-monty/reset?to=oldest
 
+### Disable the runtime: this instance stops consuming feeds (what a leader election calls on the loser)
+PUT http://localhost:14220/atomium-client-core-demo/rest/demo/feeds/disable
+
+### Enable the runtime again: the active feeds resume at the next tick
+PUT http://localhost:14220/atomium-client-core-demo/rest/demo/feeds/enable
+
 ### Push a standalone content item onto the full-monty feed (the EntryPusher building block)
 POST http://localhost:14220/atomium-client-core-demo/rest/demo/feeds/full-monty/push
 Content-Type: application/json

@@ -317,14 +317,28 @@ Per feed under `atomium.feeds.<feedId>` (map key = `getFeedId()`):
 The HTTP client config (auth, timeouts, …) is environment-specific and doesn't belong here but in your
 `FeedRestClientBuilders`; unknown sub-properties under a feed are ignored during binding.
 
-And app-wide under `atomium.admin` and `atomium.health`:
+And app-wide under `atomium.runtime`, `atomium.admin` and `atomium.health`:
 
 | Property | Default | Meaning |
 | --- | --- | --- |
+| `runtime.enabled-on-startup` | `true` | Whether this instance consumes feeds at all (`Feeds.isEnabled()`), for all feeds together. See [Several instances](#several-instances). |
 | `admin.enabled` | `false` | Exposes the [admin endpoint](#admindiagnostics-endpoint) (only in a web app, and only when this is explicitly `true`). |
 | `admin.pretty-print` | `true` | Pretty-prints the JSON responses of the admin endpoint. |
 | `health.enabled` | `true` | Registers the [health contributor](#health) (requires the health API on the classpath). |
 | `health.failure-threshold` | `3` | From how many consecutive failed runs a feed reports `DOWN`. |
+
+### Several instances
+
+`active-on-startup` and the admin endpoint say per feed whether it is *wanted*. Whether *this instance* consumes
+the wanted feeds is a second, runtime-wide switch: `atomium.runtime.enabled-on-startup` at startup,
+`Feeds.enable()`/`disable()` at run time. A feed runs when it is active **and** the runtime is enabled. With a
+single instance the default `true` is all you need. With several instances you choose the consuming one: fix it
+in the deployment, with `true` in the configuration of the instance that consumes and `false` in the others, or
+let a leader election decide, with `false` everywhere and `feeds.disable()` on the instance that loses before
+`feeds.enable()` on the one that wins. On an instance whose runtime is disabled nothing runs, the scheduler
+tick does nothing, the `feedActivated`/`feedDeactivated` events (and so the gauges and the
+`atomium.feed.last.success.time` staleness alert) only reflect the feeds this instance consumes, the health
+indicator shows `enabled: false` and stays `UP`, and the admin endpoint answers `503` (see below).
 
 ## Per-feed variation: `FeedCustomizer`
 
@@ -375,6 +389,13 @@ The response is the pointer as persisted. This works on an **active** feed: it i
 (`FeedRuntime.whileStopped`, see the core README, "Moving the feed pointer from application code"); if the run
 in flight does not stop within the feed's `stop-timeout`, the answer is **409 Conflict** and nothing has
 changed.
+
+On an instance whose runtime is disabled (`atomium.runtime.enabled-on-startup=false` and not enabled since, see
+[Several instances](#several-instances)) **every** operation, the reads included, answers **503 Service
+Unavailable** with a `Retry-After` header: that instance does not consume the feeds, so its status would be
+misleading and a pointer move or activation would collide with the instance that does. Behind a load balancer
+the retry lands on another instance. There is deliberately no admin operation to enable the runtime: the
+deployment or the leader election decides which instance consumes.
 
 ## The required DB table
 

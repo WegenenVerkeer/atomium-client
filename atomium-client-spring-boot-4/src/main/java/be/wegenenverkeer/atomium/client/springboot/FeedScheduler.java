@@ -20,6 +20,8 @@ import java.util.concurrent.ScheduledFuture;
  * ({@code query-interval} after a successful run, backoff after a failed one) — so the tick is non-blocking
  * and cheap, and both query interval and backoff are respected at tick resolution. The actual feed run
  * runs on the feed's {@link FeedConfiguration#getExecutor() executor} (default: a dedicated thread per feed).
+ * While the runtime is {@link Feeds#isEnabled() disabled} the tick does nothing at all; the tick keeps going, so
+ * that {@link Feeds#enable()} needs no restart of the scheduler.
  *
  * <p>The tick runs on its <em>own</em> single-thread pool that this class itself owns and manages — deliberately not
  * a bean, so that it never interferes with a {@code TaskScheduler} of the application or with Boot's default for
@@ -73,22 +75,15 @@ public class FeedScheduler implements SmartLifecycle {
         if (ownScheduler != null) {
             ownScheduler.initialize();
         }
-        for (FeedRuntime feed : feeds.all()) {
-            FeedRunner runner = feed.runner();
-            if (runner.isActive()) {
-                LOG.info("feed '{}' active; polled every {}", runner.feedId(), runner.queryInterval());
-            } else {
-                // one-shot startup signal: an inactive feed in production is usually unintended (except jobs-pod-only
-                // or a deliberately switched-off feed). WARN makes it visible without polluting the run logs.
-                LOG.warn("feed '{}' is INACTIVE (active-on-startup=false); it is only consumed after activation",
-                        runner.feedId());
-            }
-        }
+        LOG.info("scheduler started; ticking every {}", tickInterval);
         scheduledTick = taskScheduler.scheduleWithFixedDelay(this::tick, tickInterval);
         running = true;
     }
 
     private void tick() {
+        if (!feeds.isEnabled()) {
+            return;
+        }
         for (FeedRuntime feed : feeds.all()) {
             // the try/catch is essential: an exception from a task makes scheduleWithFixedDelay silently suppress
             // all subsequent executions — one failed trigger would silently stop the polling forever

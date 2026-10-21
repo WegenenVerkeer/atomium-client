@@ -1134,7 +1134,7 @@ class FeedConsumerTest {
                     .executor(Runnable::run)
                     .addListener(eventListener)
                     .addListener(interruptingListener);
-            return FeedRuntime.of(builder.build());
+            return registered(FeedRuntime.of(builder.build()));
         }
     }
 
@@ -1672,7 +1672,13 @@ class FeedConsumerTest {
                 .addListener(eventListener)
                 .addListener(interruptingListener);
         tune.accept(builder);
-        return FeedRuntime.of(builder.build());
+        return registered(FeedRuntime.of(builder.build()));
+    }
+
+    /** A runtime runs only once a {@link Feeds} registry has enabled it, as in any application. */
+    private static FeedRuntime registered(FeedRuntime runtime) {
+        new Feeds(List.of(runtime));
+        return runtime;
     }
 
     /** One synchronous run of the real read loop on a scripted processor behind the seam. */

@@ -26,11 +26,13 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BooleanSupplier;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * Lifecycle unit tests for {@link FeedRunner}, independent of Spring/WireMock: the single-run guard under
- * concurrency, the graceful stop on deactivation during a running run, and the timing of the next run
- * (query interval and backoff, with a fake clock).
+ * concurrency, the graceful stop on deactivation during a running run, the timing of the next run
+ * (query interval and backoff, with a fake clock), and the runtime-wide {@code enabled} switch next to the
+ * per-feed {@code active} state.
  */
 class FeedRunnerTest {
 
@@ -231,6 +233,7 @@ class FeedRunnerTest {
             FeedRunner runner = new FeedRunner("feed", Duration.ofMinutes(1), alwaysFails, Runnable::run, true,
                     oneMinute, clock, new FeedEventListener() {
             });
+            runner.setEnabled(true);
 
             // run 1 fails → backoff active
             assertThat(runner.tryToStart()).isTrue();
@@ -262,6 +265,7 @@ class FeedRunnerTest {
             FeedRunner runner = new FeedRunner("feed", Duration.ofMinutes(1), consumer, Runnable::run, true,
                     oneMinute, clock, new FeedEventListener() {
             });
+            runner.setEnabled(true);
 
             assertThat(runner.tryToStart()).isTrue(); // fails → backoff
             assertThat(runner.consecutiveFailures()).isEqualTo(1);
@@ -289,6 +293,7 @@ class FeedRunnerTest {
             FeedRunner runner = new FeedRunner("feed", Duration.ofMinutes(1), consumer, Runnable::run, true,
                     oneMinute, clock, new FeedEventListener() {
             });
+            runner.setEnabled(true);
             runnerRef.set(runner);
 
             assertThat(runner.tryToStart()).isTrue(); // fails → backoff
@@ -311,6 +316,7 @@ class FeedRunnerTest {
             FeedRunner runner = new FeedRunner("feed", Duration.ofMinutes(1), alwaysFails, Runnable::run, true,
                     oneMinute, clock, new FeedEventListener() {
             });
+            runner.setEnabled(true);
 
             assertThat(runner.tryToStart()).isTrue(); // fails → backoff
             assertThat(runner.consecutiveFailures()).isEqualTo(1);
@@ -335,6 +341,7 @@ class FeedRunnerTest {
             };
             FeedRunner runner = new FeedRunner("feed", Duration.ofMinutes(1), decodeFailure, Runnable::run, true,
                     oneMinute, clock, listener);
+            runner.setEnabled(true);
 
             runner.tryToStart();
 
@@ -359,9 +366,11 @@ class FeedRunnerTest {
         private final TestClock clock = new TestClock(Instant.parse("2026-01-01T00:00:00Z"));
 
         private FeedRunner runner(FeedConsumer consumer) {
-            return new FeedRunner("feed", Duration.ofMinutes(1), consumer, Runnable::run, true,
+            FeedRunner runner = new FeedRunner("feed", Duration.ofMinutes(1), consumer, Runnable::run, true,
                     n -> Duration.ofMinutes(1), clock, new FeedEventListener() {
             });
+            runner.setEnabled(true);
+            return runner;
         }
 
         @Test
@@ -446,12 +455,14 @@ class FeedRunnerTest {
         };
 
         private FeedRunner runner(boolean activeOnStartup) {
-            return new FeedRunner("feed", Duration.ofMinutes(1), isInterrupted -> {
+            FeedRunner runner = new FeedRunner("feed", Duration.ofMinutes(1), isInterrupted -> {
             }, Runnable::run, activeOnStartup, n -> Duration.ofMinutes(1), Clock.systemUTC(), recorder);
+            runner.setEnabled(true);
+            return runner;
         }
 
         @Test
-        void activeOnStartupEmitsFeedActivatedAtConstruction() {
+        void activeOnStartupEmitsFeedActivatedOnceEnabled() {
             runner(true);
 
             assertThat(events).containsExactly("activated");
@@ -472,11 +483,149 @@ class FeedRunnerTest {
         }
     }
 
-    // success/failure-agnostic defaults for the non-backoff tests
+    /**
+     * The runtime-wide {@code enabled} switch ({@code Feeds.enable()/disable()}, here through the package-private
+     * mirror on the runner): a runner starts disabled, a feed is consumed only when active <em>and</em> enabled, and
+     * the activation events follow that effective state, whichever flag flips it.
+     */
+    @Nested
+    class RuntimeEnabled {
+
+        private final List<String> events = new ArrayList<>();
+        private final FeedEventListener recorder = new FeedEventListener() {
+            @Override
+            public void feedActivated(String feedId) {
+                events.add("activated");
+            }
+
+            @Override
+            public void feedDeactivated(String feedId) {
+                events.add("deactivated");
+            }
+        };
+        private final AtomicInteger runs = new AtomicInteger();
+
+        private FeedRunner runner(boolean activeOnStartup) {
+            return runner(isInterrupted -> runs.incrementAndGet(), Runnable::run, activeOnStartup);
+        }
+
+        private FeedRunner runner(FeedConsumer consumer, Executor executor, boolean activeOnStartup) {
+            return new FeedRunner("feed", Duration.ofMinutes(1), consumer, executor, activeOnStartup,
+                    n -> Duration.ofMinutes(1), Clock.systemUTC(), recorder);
+        }
+
+        /** A runner in a disabled registry (a standby instance): the feed is wanted, but not consumed here. */
+        @Test
+        void anActiveFeedStartsDisabledAndEmitsNothing() {
+            FeedRunner runner = runner(true);
+            runner.setEnabled(false);   // what a disabled registry does: registers without enabling
+
+            assertThat(runner.isActive()).isTrue();
+            assertThat(runner.isEnabled()).isFalse();
+            assertThat(runner.tryToStart()).isFalse();
+            assertThat(runs).hasValue(0);
+            assertThat(events).isEmpty();
+        }
+
+        /** A runner that was never in a registry would never run: an assembly mistake, refused instead of silent. */
+        @Test
+        void aRunnerOutsideARegistryRefusesToStart() {
+            FeedRunner runner = runner(true);
+
+            assertThatThrownBy(runner::tryToStart)
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("not in a Feeds registry")
+                    .hasMessageContaining("new Feeds(List.of(runtime))");
+            assertThat(runs).hasValue(0);
+        }
+
+        @Test
+        void enablingStartsConsumingTheActiveFeed() {
+            FeedRunner runner = runner(true);
+
+            runner.setEnabled(true);
+
+            assertThat(events).containsExactly("activated");
+            assertThat(runner.tryToStart()).isTrue();
+            assertThat(runs).hasValue(1);
+        }
+
+        /** The other order: enabled first, activated later — the event comes with the activation. */
+        @Test
+        void activatingAFeedOnAnEnabledRuntimeStartsConsumingIt() {
+            FeedRunner runner = runner(false);
+            runner.setEnabled(true);
+            assertThat(events).isEmpty();
+
+            runner.activate();
+
+            assertThat(events).containsExactly("activated");
+            assertThat(runner.tryToStart()).isTrue();
+        }
+
+        /** Flipping the switch while the feed is inactive changes nothing effectively: no events. */
+        @Test
+        void theSwitchOnAnInactiveFeedEmitsNothing() {
+            FeedRunner runner = runner(false);
+
+            runner.setEnabled(true);
+            runner.setEnabled(false);
+
+            assertThat(events).isEmpty();
+            assertThat(runner.tryToStart()).isFalse();   // registered, disabled: nothing to do, no complaint
+        }
+
+        @Test
+        void disablingStopsTheRunInFlightAndKeepsTheFeedActive() throws Exception {
+            CountDownLatch runBusy = new CountDownLatch(1);
+            FeedConsumer consumer = isInterrupted -> {
+                runBusy.countDown();
+                while (!isInterrupted.getAsBoolean()) {
+                    Thread.onSpinWait();
+                }
+            };
+            ExecutorService feedThread = Executors.newSingleThreadExecutor();
+            try {
+                FeedRunner runner = runner(consumer, feedThread, true);
+                runner.setEnabled(true);
+                assertThat(runner.tryToStart()).isTrue();
+                assertThat(runBusy.await(2, TimeUnit.SECONDS)).isTrue();
+
+                runner.setEnabled(false);
+
+                awaitUntil(() -> !runner.isRunning());
+                assertThat(runner.isActive()).isTrue();     // still wanted: enabling resumes it
+                assertThat(runner.tryToStart()).isFalse();
+                assertThat(events).containsExactly("activated", "deactivated");
+            } finally {
+                feedThread.shutdownNow();
+            }
+        }
+
+        /** An instance that takes over does not wait out a deadline from before it was disabled. */
+        @Test
+        void enablingClearsTheWaitingTime() {
+            FeedRunner runner = runner(true);
+            runner.setEnabled(true);
+            assertThat(runner.tryToStart()).isTrue();    // succeeds → wait time until the next poll
+            assertThat(runner.tryToStart()).isFalse();
+
+            runner.setEnabled(false);
+            runner.setEnabled(true);
+
+            assertThat(runner.nextRun()).isNull();
+            assertThat(runner.tryToStart()).isTrue();
+            assertThat(runs).hasValue(2);
+        }
+    }
+
+    // success/failure-agnostic defaults for the non-backoff tests; enabled, as its Feeds registry would do
     private static FeedRunner runner(FeedConsumer consumer, Executor executor, boolean activeOnStartup) {
-        return new FeedRunner("feed", Duration.ofMinutes(1), consumer, executor, activeOnStartup,
+        FeedRunner runner = new FeedRunner("feed", Duration.ofMinutes(1), consumer, executor, activeOnStartup,
                 failures -> Duration.ofMinutes(1), Clock.systemUTC(), new FeedEventListener() {
         });
+        runner.setEnabled(true);
+        return runner;
     }
 
     /** Waits (with a timeout) until a condition becomes true, without awaitility on the classpath. */

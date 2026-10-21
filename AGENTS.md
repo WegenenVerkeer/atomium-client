@@ -74,7 +74,12 @@ lock-step (see `VERSIONING.md`).
   `runtime.resetToOldest()`/`resetFromNow()`/`moveFeedPointer`; invalid combinations → 400;
   `FeedStillRunningException` → 409), `PUT …/activate`, `PUT …/deactivate` (`deactivateAndAwait`, bounded by
   the feed's `stop-timeout`, so that application cleanup cannot collide with a still-running run),
-  `POST …/push`. (No DELETE.) Every mutating call logs at INFO.
+  `POST …/push`. (No DELETE.) Every mutating call logs at INFO. **All or nothing on a
+  disabled runtime:** every endpoint method, right after its authorization check, requires `feeds.isEnabled()`
+  → `AtomiumRuntimeDisabledException` → 503 with `Retry-After`. A guard of the bundled endpoint, deliberately
+  not of `AtomiumAdminService`: an application that builds its own endpoint on the service decides itself
+  what a disabled instance may do. No operation to enable the runtime: a manual enable on a standby would
+  bring back the double consumer.
 
 ## Architecture of the handler API (core) + spring-boot-4 (invariants & pitfalls)
 
@@ -141,6 +146,20 @@ the code. See `DESIGN.md` for the class overview and the javadoc for the details
   holding the window waits for it until its timeout; and the pointer save goes through `FeedTransactions`
   like every pointer write, a repository may rely on that. The guarantee holds against the feed's own
   scheduling, not against an `activate()` from elsewhere during the window.
+- **Three lifecycle states, one effective state.** `active` (per feed: is it wanted; `active-on-startup`, admin),
+  `enabled` (per runtime: does this instance consume feeds; owned by `Feeds` — constructor parameter, default
+  `true`, `enable()/disable()` at run time) and `running` (a run in flight). A feed is consumed when
+  `active && enabled`; `tryToStart`, the stop signal of a run and the "run completed" path all look at that
+  effective state. The runner only *mirrors* the registry's switch (invariant `runner.isEnabled() ==
+  feeds.isEnabled()`): a runner **starts disabled** and the registry enables it, by default in its constructor;
+  `setEnabled` is package-private, only `Feeds` calls it, for all feeds at once. A runner outside a registry
+  **refuses** `tryToStart` with an `IllegalStateException` (a third flag, `registered`, set by `setEnabled`):
+  silently never running would be the one silent no-op in a library that fails fast on every other assembly
+  mistake. Tests that drive a bare runner enable it themselves. Both flags change under one lock in
+  `FeedRunner`. The scheduler tick keeps running while disabled (one volatile read per tick) instead of being
+  stopped and restarted. **Why the mirror on the runner** and not bookkeeping in `Feeds` that (de)activates
+  feeds: `active` must stay truthful on a standby instance (status, health, and which feeds to resume after a
+  takeover), and the stop signal of a run in flight lives in the runner.
 - **Event emission — the most important invariant for anyone touching the event flow.** *All*
   `FeedEventListener` events are emitted by `FeedConsumerImpl`, each time **after** the commit point (never
   inside a tx). The processor does **not** emit itself — it *reports* its `accepted()`/`processed()` counters;
@@ -151,8 +170,16 @@ the code. See `DESIGN.md` for the class overview and the javadoc for the details
   mid-way through a long run, without loss on a later failure) plus `latestEventUpdated`, the freshness signal
   that feeds the `atomium.entries.last.event.time` gauge.
   The only exceptions come from `FeedRunner`: `runFailed` (it knows the backoff) and the lifecycle events
-  `feedActivated`/`feedDeactivated` (emitted only on state transitions, including `active-on-startup` at
-  construction; the metrics listener seeds/removes the `atomium.feed.last.success.time` gauge on them).
+  `feedActivated`/`feedDeactivated`. **Listeners see the effective state:** those two fire on a transition of
+  `active && enabled`, whichever flag flips it. Because a runner starts disabled, `active-on-startup` emits
+  nothing at construction: the `feedActivated` comes when the registry enables the runner (in the `Feeds`
+  constructor by default), so on a standby instance (`Feeds(…, false)`) an active feed emits nothing until
+  `Feeds.enable()`. The metrics listener seeds/removes the
+  `atomium.feed.last.success.time` gauge on them, which is exactly why: a standby must not carry the series
+  a staleness alert watches. The two are emitted **under the runner's state lock**, deliberately: emitted
+  outside it, two quick flips could reach a listener in the wrong order and leave the gauge seeded on an
+  inactive feed. The price is the listener contract that a lifecycle callback must not block on the feed
+  lifecycle; listeners are observability and short.
   Logging (`LoggingFeedEventListener`) and metrics (`MicrometerFeedEventListener`) are both just listeners — by
   design.
 - **The `afterCommit` hook (two-phase tier only).** Listeners are pure observability; post-commit *domain*
@@ -263,6 +290,7 @@ two-phase test double's `failInProcess()`/`failInPersist()`; the
 
 A `FeedEventListener` logs **observable feed events**; the **framework** logs its own lifecycle/control flow
 (`FeedRunner` the run timing — INFO "run completed; next run after …" on success, the failure ERROR + backoff —
-and the activate/deactivate/recovery INFO; the schedulers (`FeedScheduler`, `SimpleFeedScheduler`) at startup
-INFO for an active feed and **WARN** for an inactive one; the admin endpoint every mutating PUT/POST at INFO).
+and the activate/deactivate/recovery INFO; `Feeds` when it enables the runtime — at startup or on a later
+`enable()` — INFO for an active feed and **WARN** for an inactive one, so that a standby that takes over logs
+the same picture as a jobs pod at startup; the admin endpoint every mutating PUT/POST at INFO).
 So add lifecycle or control-flow logging in the framework class, not in the `LoggingFeedEventListener`.

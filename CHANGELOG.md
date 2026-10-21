@@ -17,6 +17,14 @@ check or change (`Upgrade notes`). Internal refactorings and test work do not be
 - Admin endpoint: `PUT /rest/atomium/feed/{feedId}/feed-pointer` accepts `{"type": "OLDEST"}` and
   `{"type": "NOW"}` next to the known-position body (`type: POINTER`, the default), and returns the pointer as
   persisted.
+- A runtime-wide `enabled` switch on `Feeds`: does this instance consume feeds at all, next to the per-feed
+  `active` state (is the feed wanted). `new Feeds(runtimes, enabledOnStartup)`, `feeds.enable()`,
+  `feeds.disable()`, `feeds.disableAndAwait(timeout)`, `feeds.isEnabled()`; a `FeedRunner` starts disabled and
+  runs only once its registry enables it. In spring-boot-4: `atomium.runtime.enabled-on-startup` (default
+  `true`). For an application with several instances, of which one consumes (a dedicated profile, or a leader
+  election). The `feedActivated`/`feedDeactivated` events — and so the Micrometer gauges — follow the effective
+  state `active && enabled`, so a standby instance carries no `atomium.feed.last.success.time` series. The
+  health indicator shows `enabled` as a detail (a disabled runtime is `UP`). The core demo exposes the switch.
 
 ### Changed
 
@@ -29,6 +37,11 @@ check or change (`Upgrade notes`). Internal refactorings and test work do not be
   `PUT …/deactivate` waits up to that `stop-timeout` (previously a fixed 10 s).
 - `AtomiumFeedProperties.InitialFeedPointer.Type` is now the top-level `FeedPointerType` (spring-boot-4), shared
   with the admin command.
+- Admin endpoint: on an instance whose runtime is disabled every operation, the reads included, answers
+  **503 Service Unavailable** with a `Retry-After` header.
+- The per-feed startup lines (INFO for an active feed, WARN for an inactive one) are logged when `Feeds`
+  enables the runtime — at startup, or on a later `enable()` — instead of by the scheduler; the schedulers log
+  one INFO that they tick, and do nothing while the runtime is disabled.
 
 ### Fixed
 
@@ -46,6 +59,13 @@ check or change (`Upgrade notes`). Internal refactorings and test work do not be
 - Code that constructs `InitialFeedPointer` itself imports `FeedPointerType` instead of the nested `Type`.
 - Set `atomium.feeds.<id>.stop-timeout` (or `Feed.Builder.stopTimeout`) for a feed whose handler can spend more
   than 60 s on one entry plus one batch.
+- A `FeedRuntime` runs only once it is in a `Feeds` registry: a `FeedRunner` starts disabled and only the
+  registry enables it. Code that assembles a runtime with `FeedRuntime.of(feed)` and drives
+  `runner().tryToStart()` itself, without a registry, now gets an `IllegalStateException` that says so; wrap
+  the runtime in `new Feeds(List.of(runtime))`, which is enabled by default. Applications on the Spring Boot
+  module, and core applications that already use `Feeds`, need no change.
+- An application that deactivates and reactivates its feeds itself to follow a leader election can replace
+  that with `feeds.disable()`/`feeds.enable()` and `enabled-on-startup: false`.
 
 ## [4.0.0] - 2026-08-13
 

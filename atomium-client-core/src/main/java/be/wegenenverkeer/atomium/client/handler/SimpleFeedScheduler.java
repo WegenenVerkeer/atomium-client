@@ -16,11 +16,14 @@ import java.util.concurrent.TimeUnit;
  * invokes {@link FeedRunner#tryToStart()} for every feed. The runner itself guards when it may actually
  * start (query interval after a successful run, backoff after a failed one) — the tick is thus non-blocking and
  * cheap, and both the query interval and the backoff are respected at tick resolution. The actual feed run
- * executes on the feed's {@link Feed.Builder#executor(java.util.concurrent.Executor) executor}.
+ * executes on the feed's {@link Feed.Builder#executor(java.util.concurrent.Executor) executor}. While the runtime
+ * is {@link Feeds#isEnabled() disabled} the tick does nothing at all; the tick keeps going, so that
+ * {@link Feeds#enable()} needs no restart of the scheduler.
  *
  * <p>Call {@link #start()} after assembly and {@link #close()} when shutting down the application
  * (together with {@link Feeds#close()} to let runs in flight stop cleanly). If you already have a scheduler of your own,
- * you do not need this class: frequently invoking {@code runner().tryToStart()} suffices.
+ * you do not need this class: frequently invoking {@code runner().tryToStart()} suffices, once the runtime is in
+ * a {@link Feeds} registry (a runner outside one refuses to run).
  */
 public final class SimpleFeedScheduler {
 
@@ -58,22 +61,15 @@ public final class SimpleFeedScheduler {
         if (scheduler.isShutdown()) {
             throw new IllegalStateException("this SimpleFeedScheduler is closed (close() has already been called)");
         }
-        for (FeedRuntime feed : feeds.all()) {
-            FeedRunner runner = feed.runner();
-            if (runner.isActive()) {
-                LOG.info("feed '{}' active; polled every {}", runner.feedId(), runner.queryInterval());
-            } else {
-                // one-shot startup signal: an inactive feed in production is usually unintended. WARN makes it
-                // visible without polluting the run logs.
-                LOG.warn("feed '{}' is INACTIVE (activeOnStartup=false); it is only consumed after activation",
-                        runner.feedId());
-            }
-        }
+        LOG.info("scheduler started; ticking every {}", tickInterval);
         scheduledTick = scheduler.scheduleWithFixedDelay(this::tick, 0, tickInterval.toNanos(), TimeUnit.NANOSECONDS);
         running = true;
     }
 
     private void tick() {
+        if (!feeds.isEnabled()) {
+            return;
+        }
         for (FeedRuntime feed : feeds.all()) {
             // the try/catch is essential: an exception from a task makes scheduleWithFixedDelay silently suppress
             // all subsequent executions — one failed trigger would silently stop the polling forever

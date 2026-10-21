@@ -47,7 +47,11 @@ public final class FeedRuntime {
         return of(feed, Clock.systemDefaultZone());
     }
 
-    /** Like {@link #of(Feed)}, with a custom {@link Clock} for the backoff timing (tests). */
+    /**
+     * Like {@link #of(Feed)}, with the {@link Clock} behind every time-based decision of the runner: the moment of
+     * the next run, the backoff and the bounded waits ({@link FeedRunner#deactivateAndAwait}). A test that freezes
+     * it must advance it wherever it expects time to pass.
+     */
     public static FeedRuntime of(Feed<?> feed, Clock clock) {
         return assemble(feed, clock);
     }

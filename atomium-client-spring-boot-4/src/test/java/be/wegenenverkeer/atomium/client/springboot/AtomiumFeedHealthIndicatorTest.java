@@ -4,6 +4,7 @@ import be.wegenenverkeer.atomium.client.handler.FeedConsumer;
 import be.wegenenverkeer.atomium.client.handler.FeedEventListener;
 import be.wegenenverkeer.atomium.client.handler.FeedRunner;
 import be.wegenenverkeer.atomium.client.handler.FeedRuntime;
+import be.wegenenverkeer.atomium.client.handler.Feeds;
 import be.wegenenverkeer.atomium.client.handler.TestFeedRuntimes;
 
 import org.junit.jupiter.api.Test;
@@ -14,6 +15,7 @@ import org.springframework.boot.health.contributor.Status;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.OffsetDateTime;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -35,6 +37,7 @@ class AtomiumFeedHealthIndicatorTest {
         assertThat(health.getStatus()).isEqualTo(Status.UP);
         assertThat(health.getDetails())
                 .containsEntry("active", true)
+                .containsEntry("enabled", true)
                 .containsEntry("running", false)
                 .containsEntry("consecutiveFailures", 0)
                 .containsKey("nextRun")
@@ -75,6 +78,18 @@ class AtomiumFeedHealthIndicatorTest {
         assertThat(health.getDetails()).containsEntry("active", false);
     }
 
+    /** A standby instance: the feed is wanted but not consumed here — not a health problem. */
+    @Test
+    void aFeedOnADisabledRuntimeIsUpWithEnabledFalse() {
+        FeedRunner runner = bareRunner(isInterrupted -> { }, true);
+        new Feeds(List.of(TestFeedRuntimes.withRunnerOnly(runner)), false);
+
+        Health health = new AtomiumFeedHealthIndicator(TestFeedRuntimes.withRunnerOnly(runner), THRESHOLD).health();
+
+        assertThat(health.getStatus()).isEqualTo(Status.UP);
+        assertThat(health.getDetails()).containsEntry("active", true).containsEntry("enabled", false);
+    }
+
     @Test
     void showsLastCommitAndLastEventAsDetails() {
         OffsetDateTime commit = OffsetDateTime.parse("2026-07-28T12:00:00+02:00");
@@ -104,7 +119,14 @@ class AtomiumFeedHealthIndicatorTest {
         }
     }
 
+    /** A runner in an enabled registry: only then does it run at all. */
     private static FeedRunner runner(FeedConsumer consumer, boolean activeOnStartup) {
+        FeedRunner runner = bareRunner(consumer, activeOnStartup);
+        new Feeds(List.of(TestFeedRuntimes.withRunnerOnly(runner)));
+        return runner;
+    }
+
+    private static FeedRunner bareRunner(FeedConsumer consumer, boolean activeOnStartup) {
         return new FeedRunner("feed", Duration.ofMinutes(1), consumer, Runnable::run, activeOnStartup,
                 failures -> Duration.ZERO, Clock.systemUTC(), new FeedEventListener() {
         });

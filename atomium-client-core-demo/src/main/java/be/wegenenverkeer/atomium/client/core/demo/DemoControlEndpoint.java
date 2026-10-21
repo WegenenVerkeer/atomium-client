@@ -20,14 +20,14 @@ import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.LinkedHashMap;
-import java.util.List;
 import java.util.Map;
 
 /**
- * Control of the handler feeds during the demo: view status, activate/deactivate (the {@link FeedRunner}),
- * reset the read position ({@link FeedRuntime#resetToOldest} / {@link FeedRuntime#resetFromNow}) and push a
- * standalone content item (the {@code EntryPusher}). This is what the Spring Boot module's admin
- * endpoint offers out of the box; a core user writes it in this shape themselves — the building blocks expose
+ * Control of the handler feeds during the demo: view status, activate/deactivate (the {@link FeedRunner}), enable
+ * or disable the runtime as a whole ({@link Feeds#enable()} / {@link Feeds#disable()}: what a leader election
+ * would call), reset the read position ({@link FeedRuntime#resetToOldest} / {@link FeedRuntime#resetFromNow}) and
+ * push a standalone content item (the {@code EntryPusher}). This is what the Spring Boot module's admin endpoint
+ * offers out of the box; a core user writes it in this shape themselves — the building blocks expose
  * everything needed for that.
  */
 @RestController
@@ -42,10 +42,29 @@ class DemoControlEndpoint {
         this.feeds = feeds;
     }
 
-    /** The lifecycle and backoff status of every feed. */
+    /** The runtime switch and the lifecycle and backoff status of every feed. */
     @GetMapping
-    public List<Map<String, Object>> status() {
-        return feeds.all().stream().map(DemoControlEndpoint::status).toList();
+    public Map<String, Object> status() {
+        Map<String, Object> status = new LinkedHashMap<>();
+        status.put("enabled", feeds.isEnabled());
+        status.put("feeds", feeds.all().stream().map(DemoControlEndpoint::status).toList());
+        return status;
+    }
+
+    /** This instance consumes feeds again: every active feed resumes at the next tick. */
+    @PutMapping("/enable")
+    public Map<String, Object> enable() {
+        LOG.info("demo: enable the runtime");
+        feeds.enable();
+        return status();
+    }
+
+    /** This instance stops consuming feeds (a standby): runs in flight stop after their next commit point. */
+    @PutMapping("/disable")
+    public Map<String, Object> disable() {
+        LOG.info("demo: disable the runtime");
+        feeds.disable();
+        return status();
     }
 
     /** Activates the feed and triggers a run right away (instead of waiting for the next scheduler tick). */

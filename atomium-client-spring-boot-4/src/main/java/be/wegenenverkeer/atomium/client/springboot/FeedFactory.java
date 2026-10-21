@@ -56,8 +56,8 @@ public class FeedFactory {
 
     // The envelope decoder is framework-owned and shared; it uses its own JsonMapper (independent of app config).
     private final FeedPageDecoder feedPageDecoder = new JacksonFeedPageDecoder();
-    // time source for the backoff timing in the runner; systemDefaultZone so that nextAttempt carries the local offset
-    // (e.g. +02:00) instead of UTC. tests construct a runner with their own (fake) clock
+    // the clock behind every time-based decision of the runtimes and the registry; systemDefaultZone so that
+    // nextAttempt carries the local offset (e.g. +02:00) instead of UTC. tests construct a runner with their own clock
     private final Clock clock = Clock.systemDefaultZone();
 
     public FeedFactory(FeedRestClientBuilders restClientBuilders, JsonMapper defaultContentMapper,
@@ -79,6 +79,11 @@ public class FeedFactory {
         AtomiumFeedProperties properties = readConfig(feedId, handler);
         FeedConfiguration configuration = buildConfiguration(feedId, properties, handler);
         return FeedRuntime.of(buildFeed(handler, configuration), clock);
+    }
+
+    /** The clock the runtimes read; the {@link Feeds} registry gets the same one. */
+    public Clock clock() {
+        return clock;
     }
 
     /** Steps 1-3: defaults → customize → validate. Package-private so the orchestration can be tested on its own. */

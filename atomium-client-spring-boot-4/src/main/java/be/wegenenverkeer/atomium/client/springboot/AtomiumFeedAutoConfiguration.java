@@ -98,7 +98,7 @@ public class AtomiumFeedAutoConfiguration {
                        AtomiumProperties atomiumProperties) {
         List<FeedRuntime> feeds = handlers.orderedStream().map(factory::create).toList();
         verifyEveryConfigHasAHandler(feeds, atomiumProperties);
-        return new Feeds(feeds);
+        return new Feeds(feeds, atomiumProperties.runtime().enabledOnStartup(), factory.clock());
     }
 
     /**
@@ -152,11 +152,12 @@ public class AtomiumFeedAutoConfiguration {
     public AtomiumAdminEndpoint atomiumAdminEndpoint(
             AtomiumAdminService atomiumAdminService,
             ObjectProvider<AtomiumAdminAuthorization> authorization,
+            Feeds feeds,
             ObjectProvider<JsonMapper> jsonMapper,
             AtomiumProperties atomiumProperties) {
         JsonMapper mapper = jsonMapper.getIfAvailable(() -> JsonMapper.builder().build());
         return new AtomiumAdminEndpoint(atomiumAdminService, requiredAuthorization(authorization.getIfAvailable()),
-                mapper, atomiumProperties.admin().prettyPrint());
+                feeds, mapper, atomiumProperties.admin().prettyPrint());
     }
 
     /** Fail fast with a clear message instead of a generic missing-bean failure. */

@@ -40,6 +40,10 @@ logging:
     be.wegenenverkeer.atomium.client.springboot.demo: DEBUG
 
 atomium:
+  runtime:
+    # whether this instance consumes feeds at all; false on the instances of a multi-instance app that must not
+    # (a standby), see the README section "Several instances"
+    enabled-on-startup: true
   admin:
     # the admin endpoint is only exposed when this is explicitly true
     enabled: true
