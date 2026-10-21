@@ -18,7 +18,17 @@ check or change (`Upgrade notes`). Internal refactorings and test work do not be
 
 ### Upgrade notes
 
-## [4.1.0] - 2026-10-21
+## [4.1.1] - 2026-10-21
+
+Running feeds safely on more than one instance. A runtime-wide switch says whether *this* instance consumes
+feeds at all (`Feeds.enabled`, `atomium.runtime.enabled-on-startup`), so a standby in a leader election
+neither consumes nor seeds the gauges an alert watches; `FeedRuntime.whileStopped` moves the feed pointer
+(resync, skip) on an active feed without racing the run in flight, from application code and from the admin
+endpoint; and the default batch size drops to one entry, the only size that is safe for every handler. Minor
+release: additions and two documented behaviour changes, see the upgrade notes.
+
+4.1.0 was published to Maven Central from the same code before these notes were in place; it has no GitHub
+release, use 4.1.1.
 
 ### Added
 
@@ -121,6 +131,6 @@ handler API below.
 - The admin endpoint refuses to start (`atomium.admin.enabled=true`) without an `AtomiumAdminAuthorization`
   bean.
 
-[Unreleased]: https://github.com/WegenenVerkeer/atomium-client/compare/v4.1.0...HEAD
-[4.1.0]: https://github.com/WegenenVerkeer/atomium-client/compare/v4.0.0...v4.1.0
+[Unreleased]: https://github.com/WegenenVerkeer/atomium-client/compare/v4.1.1...HEAD
+[4.1.1]: https://github.com/WegenenVerkeer/atomium-client/compare/v4.0.0...v4.1.1
 [4.0.0]: https://github.com/WegenenVerkeer/atomium-client/releases/tag/v4.0.0
