@@ -15,6 +15,8 @@ atomium:
         type: [x, y]
       # large interval: the behavior test triggers the runs itself; this keeps the scheduler from ticking in between
       query-interval: 1h
+      # short, so the admin test can show a feed-pointer PUT giving up on a run that does not stop in time
+      stop-timeout: 1s
       initial-feed-pointer:
         type: oldest
     # FooAppBatchFeedHandler (SimpleProcessingFeedHandler: two-phase processing + accepts)

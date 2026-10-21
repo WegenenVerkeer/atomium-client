@@ -162,7 +162,7 @@ class FeedFactoryConfigurationTest {
     }
 
     private static AtomiumFeedProperties props() {
-        return new AtomiumFeedProperties("http://localhost/feed", Map.of(), false, Duration.ofMinutes(1), null,
+        return new AtomiumFeedProperties("http://localhost/feed", Map.of(), false, Duration.ofMinutes(1), null, null,
                 new AtomiumFeedProperties.Backoff(Duration.ofMinutes(1), Duration.ofHours(1), 2),
                 new AtomiumFeedProperties.Processing(null, 10));
     }

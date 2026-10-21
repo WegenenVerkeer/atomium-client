@@ -10,6 +10,7 @@ import static org.assertj.core.api.Assertions.assertThatIllegalStateException;
 
 /**
  * The processing threshold is resolved per handler type (see {@link FeedRuntime#processorFor}).
+ * {@link FeedRuntime#whileStopped} and moving the pointer are in {@code FeedConsumerTest.MovingTheFeedPointer}.
  */
 class FeedRuntimeTest {
 

@@ -57,6 +57,24 @@ Content-Type: application/json
     "eventId": "id-001"
 }
 
+### Read the full history again (works on an active feed: stopped, moved, activated again)
+PUT {{baseUrl}}/rest/atomium/feed/{{feedId}}/feed-pointer
+Authorization: Basic {{user}} {{password}}
+Content-Type: application/json
+
+{
+    "type": "OLDEST"
+}
+
+### Skip the backlog: only events published from now on
+PUT {{baseUrl}}/rest/atomium/feed/{{feedId}}/feed-pointer
+Authorization: Basic {{user}} {{password}}
+Content-Type: application/json
+
+{
+    "type": "NOW"
+}
+
 ###
 
 POST {{baseUrl}}/rest/atomium/feed/{{feedId}}/push

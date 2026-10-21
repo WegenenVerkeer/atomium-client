@@ -1,5 +1,7 @@
 package be.wegenenverkeer.atomium.client.springboot.admin;
 
+import be.wegenenverkeer.atomium.client.exception.FeedStillRunningException;
+import be.wegenenverkeer.atomium.client.handler.FeedRuntime;
 import be.wegenenverkeer.atomium.client.port.FeedHttpClient;
 import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
@@ -99,16 +101,17 @@ public class AtomiumAdminEndpoint {
     }
 
     /**
-     * Move the feed pointer of a feed (only when it is inactive and no run is in progress). The request body gives the
-     * {@code pageLink} and optionally the last processed {@code eventId} ({@link SetFeedPointerCommand}); with an
-     * {@code eventId} the next run resumes just after that event, otherwise from the start of the page.
+     * Move the feed pointer of a feed: {@code {"type": "OLDEST"}} (the full history again), {@code {"type": "NOW"}}
+     * (only new events) or a known position ({@code {"pageLink": "/182", "eventId": "id-042"}}; with an
+     * {@code eventId} the next run resumes just after that event, otherwise from the start of the page) — see
+     * {@link SetFeedPointerCommand}. Allowed on an active feed; 409 when its run does not stop in time. Returns the
+     * pointer as persisted.
      */
     @PutMapping("/feed/{feedId}/feed-pointer")
-    public void setFeedPointer(@PathVariable String feedId, @RequestBody SetFeedPointerCommand command) {
+    public FeedPointerDto setFeedPointer(@PathVariable String feedId, @RequestBody SetFeedPointerCommand command) {
         authorization.assertWritePermission();
-        LOG.info("feed '{}': moving feed-pointer to pageLink '{}' (eventId {})",
-                feedId, command.pageLink(), command.eventId());
-        atomiumAdminService.setFeedPointer(feedId, command.toFeedPointer());
+        LOG.info("feed '{}': moving feed-pointer: {}", feedId, command);
+        return atomiumAdminService.setFeedPointer(feedId, command);
     }
 
     /** Activate a feed. */
@@ -161,6 +164,13 @@ public class AtomiumAdminEndpoint {
     @ExceptionHandler(AtomiumUnknownFeedException.class)
     @ResponseStatus(HttpStatus.NOT_FOUND)
     public Map<String, String> onUnknownFeed(AtomiumUnknownFeedException e) {
+        return Map.of("message", e.getMessage());
+    }
+
+    /** The run in flight did not stop within the feed's stop timeout → 409 with the message. */
+    @ExceptionHandler(FeedStillRunningException.class)
+    @ResponseStatus(HttpStatus.CONFLICT)
+    public Map<String, String> onFeedStillRunning(FeedStillRunningException e) {
         return Map.of("message", e.getMessage());
     }
 

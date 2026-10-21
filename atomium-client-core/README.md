@@ -129,6 +129,35 @@ and the run executes on the feed's executor). A complete, running example of pre
 this assembly — both minimal and with all building blocks — is
 [`atomium-client-core-demo`](../atomium-client-core-demo/README.md).
 
+### Moving the feed pointer from application code
+
+A resync ("read everything again") or a skip ("ignore the backlog, only new events") is a move of the feed
+pointer. The pointer may only change while no run is in flight, and the feed must be back in its previous
+state afterwards; `FeedRuntime` does both:
+
+```java
+FeedRuntime runtime = feeds.get("myfeed");
+runtime.resetToOldest();                                   // the full history again
+runtime.resetFromNow();                                    // skip what is on the feed now
+runtime.moveFeedPointer(new FeedPointer("/182"));          // from a known page
+runtime.whileStopped(() -> { /* any work that needs a stopped feed */ });
+```
+
+Each of these deactivates an active feed, waits until the run in flight has stopped, does the work, and
+activates the feed again — also when the work fails. An inactive feed stays inactive. `whileStopped` is the
+building block behind the three pointer operations; use it for work of your own that must not overlap with a
+run, e.g. clearing the tables a handler fills and re-anchoring the pointer in one go.
+
+- **The wait** is bounded by the feed's `stopTimeout` (builder default `FeedDefaults.STOP_TIMEOUT`, 60 s). A
+  run notices the stop after the entry it is on and first wraps up the batch it has in hand, so size the
+  timeout to one entry plus one batch of your handler. If the run does not stop in time, a
+  `FeedStillRunningException` is thrown and nothing has changed.
+- **Calls on the same feed are serialized**: a second caller waits until the first one is done.
+- **Transactions**: the pointer operations persist through the feed's `FeedTransactions`; your own work runs
+  outside any transaction, open one yourself inside it if you need one.
+- **Not from the feed thread** (a handler or listener callback): that would wait on itself, and the runtime
+  refuses it.
+
 With [`atomium-client-jackson-3`](../atomium-client-jackson-3/README.md) you don't have to write the
 `contentDecoder` yourself: `JacksonFeedContentDecoder.of(handler, jsonMapper)` derives the content type
 from the type of your handler. The builder defaults (in-memory pointers, no transactions) are meant for

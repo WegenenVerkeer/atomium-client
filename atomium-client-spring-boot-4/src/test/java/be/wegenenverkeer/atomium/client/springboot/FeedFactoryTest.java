@@ -16,7 +16,6 @@ import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.util.Optional;
 
-import static be.wegenenverkeer.atomium.client.springboot.AtomiumFeedProperties.InitialFeedPointer.Type;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatIllegalStateException;
 
@@ -35,7 +34,7 @@ class FeedFactoryTest {
     @Test
     void oldestDelegatesToTheClient() {
         var supplier = FeedFactory.determineInitialFeedPointer(
-                "feed", new InitialFeedPointer(Type.OLDEST, null), atomiumClient, repoWith(null));
+                "feed", new InitialFeedPointer(FeedPointerType.OLDEST, null), atomiumClient, repoWith(null));
 
         assertThat(supplier.get()).isEqualTo(atomiumClient.pointerToOldest());
     }
@@ -43,7 +42,7 @@ class FeedFactoryTest {
     @Test
     void nowDelegatesToTheClient() {
         var supplier = FeedFactory.determineInitialFeedPointer(
-                "feed", new InitialFeedPointer(Type.NOW, null), atomiumClient, repoWith(null));
+                "feed", new InitialFeedPointer(FeedPointerType.NOW, null), atomiumClient, repoWith(null));
 
         assertThat(supplier.get()).isEqualTo(atomiumClient.pointerFromNow());
     }
@@ -51,7 +50,7 @@ class FeedFactoryTest {
     @Test
     void anExplicitPointerUsesThePageLink() {
         var supplier = FeedFactory.determineInitialFeedPointer(
-                "feed", new InitialFeedPointer(Type.POINTER, "/182"), atomiumClient, repoWith(null));
+                "feed", new InitialFeedPointer(FeedPointerType.POINTER, "/182"), atomiumClient, repoWith(null));
 
         assertThat(supplier.get()).isEqualTo(new FeedPointer("/182"));
     }

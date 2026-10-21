@@ -10,12 +10,25 @@ check or change (`Upgrade notes`). Internal refactorings and test work do not be
 
 ### Added
 
+- `FeedRuntime.whileStopped(work)` runs work while the feed is guaranteed to be stopped and restores the feed
+  afterwards; `moveFeedPointer`, `resetToOldest` and `resetFromNow` build on it. The wait is bounded by the
+  new `stopTimeout` (`Feed.Builder.stopTimeout`, `atomium.feeds.<id>.stop-timeout`, default 60 s). See the
+  core README, "Moving the feed pointer from application code".
+- Admin endpoint: `PUT /rest/atomium/feed/{feedId}/feed-pointer` accepts `{"type": "OLDEST"}` and
+  `{"type": "NOW"}` next to the known-position body (`type: POINTER`, the default), and returns the pointer as
+  persisted.
+
 ### Changed
 
 - The default `processing.max-size` (`FeedDefaults.MAX_PROCESSING_SIZE`, the maximum batch size of a
   `SimpleProcessingFeedHandler` feed without an explicit value) is now `1` instead of `100`: one entry per
   batch, the only size that is safe for every handler. The spring-boot-4 README explains how to choose the
   size per feed.
+- Admin endpoint: `PUT …/feed-pointer` is allowed on an active feed (briefly stopped for the move; previously
+  400) and answers **409 Conflict** when the run in flight does not stop within the feed's `stop-timeout`.
+  `PUT …/deactivate` waits up to that `stop-timeout` (previously a fixed 10 s).
+- `AtomiumFeedProperties.InitialFeedPointer.Type` is now the top-level `FeedPointerType` (spring-boot-4), shared
+  with the admin command.
 
 ### Fixed
 
@@ -27,6 +40,12 @@ check or change (`Upgrade notes`). Internal refactorings and test work do not be
   or `Feed.Builder.maxProcessingSize` on the hand-assembled path). A feed that relied on the old default
   now processes one entry per batch, with one transaction and one pointer commit per entry; set `100` to keep
   its previous behaviour.
+- Replace hand-rolled stop/move/restart code (`deactivateAndAwait`, `pointerRepository().save`, `activate`)
+  by the `FeedRuntime` operations.
+- Tooling that relied on a feed-pointer PUT on an active feed being refused (400) now gets 200.
+- Code that constructs `InitialFeedPointer` itself imports `FeedPointerType` instead of the nested `Type`.
+- Set `atomium.feeds.<id>.stop-timeout` (or `Feed.Builder.stopTimeout`) for a feed whose handler can spend more
+  than 60 s on one entry plus one batch.
 
 ## [4.0.0] - 2026-08-13
 

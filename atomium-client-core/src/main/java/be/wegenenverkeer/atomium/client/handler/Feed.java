@@ -38,6 +38,7 @@ public final class Feed<T> {
     private final Executor executor;
     private final List<FeedEventListener> listeners;
     private final Duration queryInterval;
+    private final Duration stopTimeout;
     private final boolean activeOnStartup;
     private final @Nullable Integer maxProcessingSize;
     private final int maxUncommittedPages;
@@ -54,6 +55,7 @@ public final class Feed<T> {
         this.executor = executor;
         this.listeners = List.copyOf(builder.listeners);
         this.queryInterval = builder.queryInterval;
+        this.stopTimeout = builder.stopTimeout;
         this.activeOnStartup = builder.activeOnStartup;
         this.maxProcessingSize = builder.maxProcessingSize;
         this.maxUncommittedPages = builder.maxUncommittedPages;
@@ -109,6 +111,11 @@ public final class Feed<T> {
         return queryInterval;
     }
 
+    /** How long {@link FeedRuntime#whileStopped} waits for a run in flight to stop. */
+    public Duration stopTimeout() {
+        return stopTimeout;
+    }
+
     public boolean activeOnStartup() {
         return activeOnStartup;
     }
@@ -140,6 +147,7 @@ public final class Feed<T> {
         private @Nullable Executor executor;
         private final List<FeedEventListener> listeners = new ArrayList<>();
         private Duration queryInterval = Duration.ofMinutes(1);
+        private Duration stopTimeout = FeedDefaults.STOP_TIMEOUT;
         private boolean activeOnStartup = false;
         private @Nullable Integer maxProcessingSize;
         private int maxUncommittedPages = FeedDefaults.MAX_UNCOMMITTED_PAGES;
@@ -229,6 +237,21 @@ public final class Feed<T> {
                         "feed '%s': queryInterval must be positive, was %s".formatted(feedId, queryInterval));
             }
             this.queryInterval = queryInterval;
+            return this;
+        }
+
+        /**
+         * How long {@link FeedRuntime#whileStopped} (moving the feed pointer, or other work that needs a stopped
+         * feed) waits for a run in flight to stop; see there for how to size it. Default:
+         * {@link FeedDefaults#STOP_TIMEOUT} ({@value FeedDefaults#STOP_TIMEOUT_SECONDS} seconds).
+         */
+        public Builder<T> stopTimeout(Duration stopTimeout) {
+            Objects.requireNonNull(stopTimeout, "stopTimeout");
+            if (stopTimeout.isZero() || stopTimeout.isNegative()) {
+                throw new IllegalArgumentException(
+                        "feed '%s': stopTimeout must be positive, was %s".formatted(feedId, stopTimeout));
+            }
+            this.stopTimeout = stopTimeout;
             return this;
         }
 

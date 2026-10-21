@@ -211,7 +211,7 @@ public final class FeedRunner {
      *                               deadlock — use {@link #deactivate()} there
      */
     public boolean deactivateAndAwait(Duration timeout) {
-        if (Thread.currentThread() == runThread) {
+        if (isFeedThread()) {
             throw new IllegalStateException(("feed '%s': deactivateAndAwait must not be called from the feed thread "
                     + "itself (deadlock); use deactivate()").formatted(feedId));
         }
@@ -232,6 +232,11 @@ public final class FeedRunner {
             }
         }
         return true;
+    }
+
+    /** Whether the calling thread is the feed thread of a run in flight (a handler or listener callback). */
+    boolean isFeedThread() {
+        return Thread.currentThread() == runThread;
     }
 
     /**

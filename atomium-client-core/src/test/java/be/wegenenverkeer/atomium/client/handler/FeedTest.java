@@ -58,6 +58,16 @@ class FeedTest {
     }
 
     @Test
+    void theStopTimeoutMustBePositive() {
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> builder().stopTimeout(Duration.ZERO))
+                .withMessageContaining("stopTimeout");
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> builder().stopTimeout(Duration.ofSeconds(-1)))
+                .withMessageContaining("stopTimeout");
+    }
+
+    @Test
     void maxUncommittedPagesMustBeAtLeastOne() {
         assertThatIllegalArgumentException()
                 .isThrownBy(() -> builder().maxUncommittedPages(0))

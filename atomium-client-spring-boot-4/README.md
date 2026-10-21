@@ -308,6 +308,7 @@ Per feed under `atomium.feeds.<feedId>` (map key = `getFeedId()`):
 | `query-params` | empty | Query parameters sent with **every** fetch (the head as well as every page), added to any query parameters the page href itself carries — for feed servers whose behavior is steered per request, e.g. a (multi-valued) server-side filter: `query-params: {ignore-readmodels: true, type: [x, y]}`. A scalar binds as a single-element list. |
 | `active-on-startup` | `false` | Whether the consumer starts automatically. |
 | `query-interval` | `1m` | Poll frequency: the wait between the end of a successful run and the start of the next. |
+| `stop-timeout` | `60s` | How long moving the feed pointer (the admin endpoint, or `FeedRuntime.whileStopped` from application code) waits for a run in flight to stop. Size it to one entry plus one batch of the handler (see the core README, "Moving the feed pointer from application code"). |
 | `initial-feed-pointer.type` | — | Start position of a **new** feed: `oldest` (full history), `now` (only new events), or `pointer` (+ `page-link`). Only used as long as no pointer has been persisted yet. |
 | `backoff.initial-interval` / `.max-interval` / `.multiplier` | `1m` / `1h` / `2` | Exponential backoff on consecutive failed runs. |
 | `processing.max-size` | `1` | Only with a **`SimpleProcessingFeedHandler`**: the **maximum** batch size, counted in accepted entries — batches come out smaller when the safety net, the end of the feed, an interruption or a read failure wraps them up first. |
@@ -361,10 +362,19 @@ AtomiumAdminAuthorization atomiumAdminAuthorization() {
 
 The application additionally provides its own security filter chain (authentication) for `/rest/atomium/**`.
 
-To reposition a feed (only when it is inactive and no run is in progress), the page and optionally the last
-processed event suffice — you don't need to know the internal fetch optimization:
-`PUT /rest/atomium/feed/{feedId}/feed-pointer` with body `{"pageLink": "/182", "eventId": "id-042"}` (the
-next run resumes right after that event) or `{"pageLink": "/182"}` (reads the page from the start).
+To reposition a feed, `PUT /rest/atomium/feed/{feedId}/feed-pointer` with one of three bodies, the same
+kinds as `initial-feed-pointer.type` in the configuration (`FeedPointerType`):
+
+- `{"type": "OLDEST"}` — the full history again;
+- `{"type": "NOW"}` — skip what is on the feed now, only new events;
+- `{"pageLink": "/182", "eventId": "id-042"}` (`type: POINTER`, the default) — a known position: the next run
+  resumes right after that event, or with `{"pageLink": "/182"}` from the start of the page. You don't need to
+  know the internal fetch optimization.
+
+The response is the pointer as persisted. This works on an **active** feed: it is briefly stopped for the move
+(`FeedRuntime.whileStopped`, see the core README, "Moving the feed pointer from application code"); if the run
+in flight does not stop within the feed's `stop-timeout`, the answer is **409 Conflict** and nothing has
+changed.
 
 ## The required DB table
 

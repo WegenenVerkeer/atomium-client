@@ -70,11 +70,11 @@ lock-step (see `VERSIONING.md`).
   security). Authorization via the mandatory `AtomiumAdminAuthorization` bean (fail-fast on
   `atomium.admin.enabled=true` without a bean; every endpoint method asserts read or write permission as its
   first statement). GETs = read-only diagnostics (feed pointer, status, config, raw page). Mutating:
-  `PUT …/feed-pointer` (`SetFeedPointerCommand(pageLink, eventId?)` → `resumeAfter` with an eventId, otherwise
-  `new FeedPointer(pageLink)`; empty pageLink → 400; only when the feed is inactive and no run is in progress),
-  `PUT …/activate`, `PUT …/deactivate` (deactivates and waits, bounded, until the running run has stopped —
-  `FeedRunner.deactivateAndAwait`; that way a subsequent feed-pointer PUT or application cleanup cannot collide
-  with a still-running run), `POST …/push`. (No DELETE.) Every mutating call logs at INFO.
+  `PUT …/feed-pointer` (`SetFeedPointerCommand`: `FeedPointerType` `OLDEST`/`NOW`/`POINTER` (default) →
+  `runtime.resetToOldest()`/`resetFromNow()`/`moveFeedPointer`; invalid combinations → 400;
+  `FeedStillRunningException` → 409), `PUT …/activate`, `PUT …/deactivate` (`deactivateAndAwait`, bounded by
+  the feed's `stop-timeout`, so that application cleanup cannot collide with a still-running run),
+  `POST …/push`. (No DELETE.) Every mutating call logs at INFO.
 
 ## Architecture of the handler API (core) + spring-boot-4 (invariants & pitfalls)
 
@@ -133,6 +133,14 @@ the code. See `DESIGN.md` for the class overview and the javadoc for the details
   intervening does not wait for a deadline. If you change anything here: the query-interval wait also applies to
   manual `tryToStart` calls; tests and tooling that want "a run right now" go via
   `activate()`/`scheduleNextRunNow()`.
+- **Moving the feed pointer goes through `FeedRuntime.whileStopped`**, never through a bare
+  `pointerRepository().save` next to a possibly active runner: a run in flight would overwrite the new pointer
+  at its next commit. Three non-obvious things in there: calls on one runtime are serialized by a lock,
+  otherwise the restore of one caller reactivates the feed under another; the feed-thread check sits
+  **before** that lock, otherwise a feed thread queued behind an open window can never stop and the caller
+  holding the window waits for it until its timeout; and the pointer save goes through `FeedTransactions`
+  like every pointer write, a repository may rely on that. The guarantee holds against the feed's own
+  scheduling, not against an `activate()` from elsewhere during the window.
 - **Event emission — the most important invariant for anyone touching the event flow.** *All*
   `FeedEventListener` events are emitted by `FeedConsumerImpl`, each time **after** the commit point (never
   inside a tx). The processor does **not** emit itself — it *reports* its `accepted()`/`processed()` counters;

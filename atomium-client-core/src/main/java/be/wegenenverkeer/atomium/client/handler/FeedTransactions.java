@@ -3,9 +3,11 @@ package be.wegenenverkeer.atomium.client.handler;
 import java.util.function.Supplier;
 
 /**
- * Executes the processing work of a feed in a transaction. The framework uses this in exactly two
- * places: the commit of processed work (the handler effect and the feed pointer atomically together) and a
- * push of a standalone content item.
+ * Executes the processing work of a feed in a transaction. Every write the framework does to the application's
+ * persistence goes through this port — the commit of processed work (the handler effect and the feed pointer
+ * atomically together), a push of a standalone content item, and every write of the feed pointer on its own (the
+ * initial anchor of a new feed, a move) — so a {@link FeedPointerRepository} may rely on {@code save} always
+ * running inside one.
  *
  * <p><b>Contract:</b> the work runs entirely within one transaction. If the work throws a
  * {@link RuntimeException}, the transaction is rolled back and the exception is rethrown unchanged.

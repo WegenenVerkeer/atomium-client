@@ -15,6 +15,7 @@ import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.http.HttpStatus;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.context.annotation.Bean;
@@ -259,6 +260,77 @@ class AtomiumAdminRestTest {
                     .isEqualTo(new FeedPointerDto(FEED, new FeedPointerDto.Position(null, null, "/5", null)));
         }
 
+        /** The response is the pointer as persisted. */
+        @Test
+        void setFeedPointerReturnsThePersistedPointer() {
+            admin.put().uri("/rest/atomium/feed/{id}/feed-pointer", FEED)
+                    .body(new SetFeedPointerCommand("/5", "id-042")).exchange().expectStatus().isOk()
+                    .expectBody(FeedPointerDto.class)
+                    .isEqualTo(new FeedPointerDto(FEED, new FeedPointerDto.Position("/5", "id-042", "/5", null)));
+        }
+
+        /** {@code type: OLDEST} asks the source for its oldest page (the 'last' link of the head). */
+        @Test
+        void setFeedPointerToOldest() {
+            wiremock.stubFor(get(urlPathEqualTo("/feed")).willReturn(okJson(resource("2-v1.json"))));
+
+            admin.put().uri("/rest/atomium/feed/{id}/feed-pointer", FEED)
+                    .body(new SetFeedPointerCommand("OLDEST", null, null)).exchange().expectStatus().isOk();
+
+            assertThat(getOk("/rest/atomium/feed/{id}/feed-pointer", FeedPointerDto.class, FEED))
+                    .isEqualTo(new FeedPointerDto(FEED, new FeedPointerDto.Position(null, null, "/0", null)));
+        }
+
+        /** {@code type: now} anchors just after the youngest event on the head: the existing events are skipped. */
+        @Test
+        void setFeedPointerToNow() {
+            wiremock.stubFor(get(urlPathEqualTo("/feed")).willReturn(okJson(resource("2-v1.json"))));
+
+            admin.put().uri("/rest/atomium/feed/{id}/feed-pointer", FEED)
+                    .body(new SetFeedPointerCommand("NOW", null, null)).exchange().expectStatus().isOk();
+
+            assertThat(getOk("/rest/atomium/feed/{id}/feed-pointer", FeedPointerDto.class, FEED).pointer())
+                    .satisfies(position -> {
+                        assertThat(position.lastEventPageLink()).isEqualTo("/2");
+                        assertThat(position.lastEventId()).isEqualTo("id-008");
+                    });
+        }
+
+        /** On an active feed the pointer moves as well: the feed is stopped for it and active again afterwards. */
+        @Test
+        void setFeedPointerOnAnActiveFeed() {
+            admin.put().uri("/rest/atomium/feed/{id}/activate", FEED).exchange().expectStatus().isOk();
+            // activate immediately triggers a run (which fails here on the unstubbed WireMock); wait until it has completed
+            awaitUntil(() -> !feeds.get(FEED).runner().isRunning());
+
+            admin.put().uri("/rest/atomium/feed/{id}/feed-pointer", FEED)
+                    .body(new SetFeedPointerCommand("/5", "id-042")).exchange().expectStatus().isOk();
+
+            assertThat(getOk("/rest/atomium/feed/{id}/status", FeedStatusDto.class, FEED).active()).isTrue();
+            assertThat(getOk("/rest/atomium/feed/{id}/feed-pointer", FeedPointerDto.class, FEED))
+                    .isEqualTo(new FeedPointerDto(FEED, new FeedPointerDto.Position("/5", "id-042", "/5", null)));
+        }
+
+        /** A run in flight that stops within the feed's stop timeout is simply waited for. */
+        @Test
+        void setFeedPointerWaitsForTheRunInFlight() {
+            // head with a delay so the run stays busy (running) while we move the pointer; shorter than the 1s stop-timeout
+            wiremock.stubFor(get(urlPathEqualTo("/feed"))
+                    .willReturn(okJson(resource("2-v1.json")).withFixedDelay(300)));
+            FeedRunner runner = feeds.get(FEED).runner();
+            runner.activate();
+            assertThat(runner.tryToStart()).isTrue();
+            awaitUntil(() -> !wiremock.findAll(getRequestedFor(urlPathEqualTo("/feed"))).isEmpty());
+            assertThat(runner.isRunning()).isTrue();
+
+            admin.put().uri("/rest/atomium/feed/{id}/feed-pointer", FEED)
+                    .body(new SetFeedPointerCommand("/1", "id-1")).exchange().expectStatus().isOk();
+
+            assertThat(runner.isActive()).isTrue();
+            assertThat(getOk("/rest/atomium/feed/{id}/feed-pointer", FeedPointerDto.class, FEED))
+                    .isEqualTo(new FeedPointerDto(FEED, new FeedPointerDto.Position("/1", "id-1", "/1", null)));
+        }
+
         @Test
         void activate() {
             admin.put().uri("/rest/atomium/feed/{id}/activate", FEED).exchange().expectStatus().isOk();
@@ -408,30 +480,38 @@ class AtomiumAdminRestTest {
         }
 
         @Test
-        void setFeedPointer_ifFeedActive() {
-            admin.put().uri("/rest/atomium/feed/{id}/activate", FEED).exchange().expectStatus().isOk();
-
+        void setFeedPointer_withAnUnknownType() {
             admin.put().uri("/rest/atomium/feed/{id}/feed-pointer", FEED)
-                    .body(new SetFeedPointerCommand("/1", "id-1")).exchange().expectStatus().isBadRequest();
+                    .body(new SetFeedPointerCommand("head", null, null)).exchange().expectStatus().isBadRequest();
         }
 
         @Test
-        void setFeedPointer_ifFeedRunning() {
-            // head with a delay so the run stays busy (running) while we try to set the pointer
-            wiremock.stubFor(get(urlPathEqualTo("/feed"))
-                    .willReturn(okJson(resource("2-v1.json")).withFixedDelay(1500)));
+        void setFeedPointer_oldestWithAPageLink() {
+            admin.put().uri("/rest/atomium/feed/{id}/feed-pointer", FEED)
+                    .body(new SetFeedPointerCommand("OLDEST", "/1", null)).exchange().expectStatus().isBadRequest();
+        }
 
+        /** A run in flight that does not stop within the feed's stop timeout → 409; nothing changed, feed active again. */
+        @Test
+        void setFeedPointer_ifTheRunDoesNotStopInTime() {
+            // head with a delay longer than the 1s stop-timeout of this feed, so the run is still busy when we give up
+            wiremock.stubFor(get(urlPathEqualTo("/feed"))
+                    .willReturn(okJson(resource("2-v1.json")).withFixedDelay(2500)));
             FeedRunner runner = feeds.get(FEED).runner();
             runner.activate();
             assertThat(runner.tryToStart()).isTrue(); // running=true, the run blocks in the head fetch
-            // wait until the run is actually inside the fetch before deactivating: a run that has not started yet
-            // sees active=false and immediately returns without doing anything (the deactivateAndAwait guarantee) — then this tests nothing
+            // wait until the run is actually inside the fetch: a run that has not started yet sees the deactivation
+            // and returns right away — then this tests nothing
             awaitUntil(() -> !wiremock.findAll(getRequestedFor(urlPathEqualTo("/feed"))).isEmpty());
-            runner.deactivate();                             // active=false, but running is still true
             try {
-                assertThat(runner.isRunning()).isTrue();
                 admin.put().uri("/rest/atomium/feed/{id}/feed-pointer", FEED)
-                        .body(new SetFeedPointerCommand("/1", "id-1")).exchange().expectStatus().isBadRequest();
+                        .body(new SetFeedPointerCommand("/1", "id-1")).exchange()
+                        .expectStatus().isEqualTo(HttpStatus.CONFLICT);
+
+                assertThat(runner.isActive()).isTrue();
+                assertThat(runner.isRunning()).isTrue();
+                // unchanged: still no pointer (the run is stuck in the head fetch that would anchor the initial one)
+                assertThat(getOk("/rest/atomium/feed/{id}/feed-pointer", FeedPointerDto.class, FEED).pointer()).isNull();
             } finally {
                 awaitUntil(() -> !runner.isRunning()); // let the run finish before the next test
             }
@@ -535,6 +615,7 @@ class AtomiumAdminRestTest {
         Map<String, Object> config = (Map<String, Object>) feedConfigDto.get("config");
         assertThat(config).containsEntry("activeOnStartup", false);
         assertThat(config).containsEntry("queryInterval", "PT1H");
+        assertThat(config).containsEntry("stopTimeout", "PT1S");
         assertThat((Map<String, Object>) config.get("initialFeedPointer")).containsEntry("type", "OLDEST");
     }
 

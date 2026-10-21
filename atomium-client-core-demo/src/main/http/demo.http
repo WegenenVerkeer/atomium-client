@@ -24,6 +24,9 @@ PUT http://localhost:14220/atomium-client-core-demo/rest/demo/feeds/simple/deact
 ###
 PUT http://localhost:14220/atomium-client-core-demo/rest/demo/feeds/simple/activate
 
+### Reset the full-monty feed to the oldest page (safe while active: stop, move, restart) — or ?to=now
+PUT http://localhost:14220/atomium-client-core-demo/rest/demo/feeds/full-monty/reset?to=oldest
+
 ### Push a standalone content item onto the full-monty feed (the EntryPusher building block)
 POST http://localhost:14220/atomium-client-core-demo/rest/demo/feeds/full-monty/push
 Content-Type: application/json

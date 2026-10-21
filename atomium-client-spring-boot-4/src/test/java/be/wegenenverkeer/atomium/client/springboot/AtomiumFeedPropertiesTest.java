@@ -3,7 +3,6 @@ package be.wegenenverkeer.atomium.client.springboot;
 import be.wegenenverkeer.atomium.client.springboot.AtomiumFeedProperties.Backoff;
 import be.wegenenverkeer.atomium.client.springboot.AtomiumFeedProperties.InitialFeedPointer;
 import be.wegenenverkeer.atomium.client.springboot.AtomiumFeedProperties.Processing;
-import be.wegenenverkeer.atomium.client.springboot.AtomiumFeedProperties.InitialFeedPointer.Type;
 
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -39,8 +38,30 @@ class AtomiumFeedPropertiesTest {
         }
 
         private static AtomiumFeedProperties feedProperties(Duration queryInterval) {
-            return new AtomiumFeedProperties("http://localhost/feed", Map.of(), false, queryInterval, null,
+            return new AtomiumFeedProperties("http://localhost/feed", Map.of(), false, queryInterval, null, null,
                     new Backoff(Duration.ofMinutes(1), Duration.ofHours(1), 2), new Processing(null, null));
+        }
+    }
+
+    @Nested
+    class StopTimeout {
+
+        @Test
+        void mustBePositiveWhenSet() {
+            assertThatIllegalArgumentException()
+                    .isThrownBy(() -> feedProperties(Duration.ZERO))
+                    .withMessageContaining("stop-timeout");
+        }
+
+        @Test
+        void emptyIsOkTheCoreDefaultApplies() {
+            assertThatCode(() -> feedProperties(null)).doesNotThrowAnyException();
+        }
+
+        private static AtomiumFeedProperties feedProperties(Duration stopTimeout) {
+            return new AtomiumFeedProperties("http://localhost/feed", Map.of(), false, Duration.ofMinutes(1),
+                    stopTimeout, null, new Backoff(Duration.ofMinutes(1), Duration.ofHours(1), 2),
+                    new Processing(null, null));
         }
     }
 
@@ -107,24 +128,24 @@ class AtomiumFeedPropertiesTest {
         @Test
         void typePointerRequiresPageLink() {
             assertThatIllegalArgumentException()
-                    .isThrownBy(() -> new InitialFeedPointer(Type.POINTER, null))
+                    .isThrownBy(() -> new InitialFeedPointer(FeedPointerType.POINTER, null))
                     .withMessageContaining("page-link");
             assertThatIllegalArgumentException()
-                    .isThrownBy(() -> new InitialFeedPointer(Type.POINTER, "  "))
+                    .isThrownBy(() -> new InitialFeedPointer(FeedPointerType.POINTER, "  "))
                     .withMessageContaining("page-link");
         }
 
         @Test
         void pageLinkWithAnotherTypeIsRejected() {
             assertThatIllegalArgumentException()
-                    .isThrownBy(() -> new InitialFeedPointer(Type.OLDEST, "/182"))
+                    .isThrownBy(() -> new InitialFeedPointer(FeedPointerType.OLDEST, "/182"))
                     .withMessageContaining("page-link");
         }
 
         @Test
         void validCombinationsAreOk() {
-            assertThatCode(() -> new InitialFeedPointer(Type.POINTER, "/182")).doesNotThrowAnyException();
-            assertThatCode(() -> new InitialFeedPointer(Type.NOW, null)).doesNotThrowAnyException();
+            assertThatCode(() -> new InitialFeedPointer(FeedPointerType.POINTER, "/182")).doesNotThrowAnyException();
+            assertThatCode(() -> new InitialFeedPointer(FeedPointerType.NOW, null)).doesNotThrowAnyException();
         }
     }
 }
