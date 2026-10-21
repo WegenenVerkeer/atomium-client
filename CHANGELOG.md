@@ -10,6 +10,18 @@ check or change (`Upgrade notes`). Internal refactorings and test work do not be
 
 ### Added
 
+### Changed
+
+### Fixed
+
+### Removed
+
+### Upgrade notes
+
+## [4.1.0] - 2026-10-21
+
+### Added
+
 - `FeedRuntime.whileStopped(work)` runs work while the feed is guaranteed to be stopped and restores the feed
   afterwards; `moveFeedPointer`, `resetToOldest` and `resetFromNow` build on it. The wait is bounded by the
   new `stopTimeout` (`Feed.Builder.stopTimeout`, `atomium.feeds.<id>.stop-timeout`, default 60 s). See the
@@ -42,10 +54,6 @@ check or change (`Upgrade notes`). Internal refactorings and test work do not be
 - The per-feed startup lines (INFO for an active feed, WARN for an inactive one) are logged when `Feeds`
   enables the runtime — at startup, or on a later `enable()` — instead of by the scheduler; the schedulers log
   one INFO that they tick, and do nothing while the runtime is disabled.
-
-### Fixed
-
-### Removed
 
 ### Upgrade notes
 
@@ -113,5 +121,6 @@ handler API below.
 - The admin endpoint refuses to start (`atomium.admin.enabled=true`) without an `AtomiumAdminAuthorization`
   bean.
 
-[Unreleased]: https://github.com/WegenenVerkeer/atomium-client/compare/v4.0.0...HEAD
+[Unreleased]: https://github.com/WegenenVerkeer/atomium-client/compare/v4.1.0...HEAD
+[4.1.0]: https://github.com/WegenenVerkeer/atomium-client/compare/v4.0.0...v4.1.0
 [4.0.0]: https://github.com/WegenenVerkeer/atomium-client/releases/tag/v4.0.0
