@@ -46,9 +46,9 @@ Framework-independent Java library for consuming an Atomium feed: a low-level **
 - **FeedContentDecoder** — decodes the raw entry content into the handler's domain type (impl: `JacksonFeedContentDecoder` in `-jackson-3`, which derives the content type from the handler type).
 - **FeedTransactions** — port for the transaction within which the handler effect and the feed pointer commit together (`withoutTransactions()` for those who have no tx).
 - **FeedPointerRepository** — port for the pointer persistence; **InMemoryFeedPointerRepository** is the non-persistent builder default (tests/demos).
-- **FeedRuntime** — assembles the running machinery from a `Feed` (runner + consumer + pusher); the per-feed entry point for scheduler and management tooling.
+- **FeedRuntime** — assembles the running machinery from a `Feed` (runner + consumer + pusher); the per-feed entry point for scheduler and management tooling, and the place to move the feed pointer safely (`moveFeedPointer`, `resetToOldest`, `resetFromNow`, all on `whileStopped`: stop, wait for the run in flight, work, restore).
 - **Feeds** — the registry of all `FeedRuntime`s (lookup by feedId).
-- **FeedDefaults** — the behavior defaults of the core layer (`MAX_PROCESSING_SIZE`, `MAX_UNCOMMITTED_PAGES`); the javadoc references them with `{@value}`.
+- **FeedDefaults** — the behavior defaults of the core layer (`MAX_PROCESSING_SIZE`, `MAX_UNCOMMITTED_PAGES`, `STOP_TIMEOUT`); the javadoc references them with `{@value}`.
 - **FeedPusher** — opt-in capability of a handler: implement it (next to the variant) to support push.
 - **EntryPusher** — internal port that processes a loose content item as if it were on the feed (troubleshooting/repair); delegates to the handler's `FeedPusher`.
 - **LoggingFeedEventListener** — the bundled `FeedEventListener` (logs the events).

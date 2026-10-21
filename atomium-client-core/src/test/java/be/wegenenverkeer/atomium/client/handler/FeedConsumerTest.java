@@ -1,6 +1,7 @@
 package be.wegenenverkeer.atomium.client.handler;
 
 import be.wegenenverkeer.atomium.client.exception.AtomiumHttpException;
+import be.wegenenverkeer.atomium.client.exception.FeedStillRunningException;
 import be.wegenenverkeer.atomium.client.fetch.AtomiumClient;
 import be.wegenenverkeer.atomium.client.fetch.FakeFeedHttpClient;
 import be.wegenenverkeer.atomium.client.fetch.FeedPointer;
@@ -22,11 +23,18 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 
@@ -38,8 +46,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * Functional test of the handler API: verifies that a {@link FeedHandler} receives the correct callbacks when
  * the feed consumer walks the (in-memory) feed, that the {@link FeedEventListener}s see the right event timeline,
  * and that the feedPointer sits at the right position at every commit point so that a second run resumes where the
- * first one stopped. Runs on the real fetch API on top of a {@link FakeFeedHttpClient} (no HTTP, no threads: an
- * inline executor lets {@code tryToStart()} run the run synchronously).
+ * first one stopped. Runs on the real fetch API on top of a {@link FakeFeedHttpClient} (no HTTP; an inline executor
+ * lets {@code tryToStart()} run the run synchronously, except where a test needs a run in flight).
  *
  * <p>The pointer asserts go through {@code eventListener.pointerCommits()}: {@code feedPointerAdvanced} fires on
  * every commit and guaranteed only after the commit, so that list is exactly what a crash at any moment would leave
@@ -1212,6 +1220,408 @@ class FeedConsumerTest {
             assertThatThrownBy(() -> runtime.pusher().pushEntry("{\"aField\": \"x\"}"))
                     .isInstanceOf(UnsupportedOperationException.class)
                     .hasMessageContaining("implement FeedPusher");
+        }
+    }
+
+    /**
+     * Moving the feed pointer ({@link FeedRuntime#moveFeedPointer}, {@link FeedRuntime#resetToOldest},
+     * {@link FeedRuntime#resetFromNow}, all on {@link FeedRuntime#whileStopped}): the pointer only changes while no
+     * run is in flight, the next run starts from the new position, and the feed ends up in the state it was in
+     * before — active again if it was active, also when the work fails.
+     */
+    @Nested
+    class MovingTheFeedPointer {
+
+        /** An active feed is stopped for the move and active again afterwards; its next run starts from the new position. */
+        @Test
+        void anActiveFeedIsActiveAgainAndResumesFromTheNewPosition() {
+            FeedRuntime runtime = runtime(handler, completeFeed());
+            consume(runtime);
+            handler.invocations().clear();
+
+            runtime.moveFeedPointer(new FeedPointer("/1"));
+
+            assertThat(runtime.runner().isActive()).isTrue();
+            assertThat(runtime.runner().tryToStart()).isTrue();   // activate() cleared the query-interval wait
+            assertThat(handler.invocations()).containsExactly(
+                    "onEntry(/1, id-004, fieldValue-4)",
+                    "onEntry(/1, id-005, fieldValue-5)",
+                    "onEntry(/1, id-006, fieldValue-6)",
+                    "onEntry(/2, id-007, fieldValue-7)",
+                    "onEntry(/2, id-008, fieldValue-8)");
+        }
+
+        /** The pointer is persisted through the feed's {@link FeedTransactions}, like every pointer write. */
+        @Test
+        void anInactiveFeedStaysInactive() {
+            FeedRuntime runtime = runtime(handler, completeFeed());
+
+            FeedPointer moved = runtime.moveFeedPointer(new FeedPointer("/1"));
+
+            assertThat(runtime.runner().isActive()).isFalse();
+            assertThat(runtime.feed().pointerRepository().find("feed")).contains(moved);
+            assertThat(transactions.commits()).isEqualTo(1);
+        }
+
+        /** The guarantee that makes the building block safe to use: the feed is restored even when the work throws. */
+        @Test
+        void aFailingWorkStillRestoresTheFeedAndPropagatesTheFailure() {
+            FeedRuntime runtime = runtime(handler, completeFeed());
+            runtime.runner().activate();
+
+            assertThatThrownBy(() -> runtime.whileStopped(() -> {
+                assertThat(runtime.runner().isActive()).isFalse();   // stopped while the work runs
+                throw new IllegalStateException("work fails deliberately");
+            })).isInstanceOf(IllegalStateException.class).hasMessage("work fails deliberately");
+
+            assertThat(runtime.runner().isActive()).isTrue();
+        }
+
+        /** {@code resetToOldest} re-anchors at the oldest page: a consumed feed is consumed again from the start. */
+        @Test
+        void resetToOldestConsumesTheFeedAgainFromTheStart() {
+            FeedRuntime runtime = runtime(handler, completeFeed());
+            consume(runtime);
+            handler.invocations().clear();
+
+            FeedPointer reset = runtime.resetToOldest();
+
+            assertThat(reset).isEqualTo(new FeedPointer("/0"));
+            assertThat(runtime.runner().tryToStart()).isTrue();
+            assertThat(handler.invocations()).hasSize(8).first().isEqualTo("onEntry(/0, id-001, fieldValue-1)");
+        }
+
+        /** {@code resetFromNow} skips what is on the feed: the next run processes nothing. */
+        @Test
+        void resetFromNowSkipsTheExistingEvents() {
+            FeedRuntime runtime = runtime(handler, completeFeed());
+            runtime.runner().activate();
+
+            FeedPointer reset = runtime.resetFromNow();
+
+            // anchored after the youngest event on the head
+            assertThat(reset.lastEvent()).isNotNull();
+            assertThat(reset.lastEvent().eventId()).isEqualTo("id-008");
+            assertThat(runtime.runner().tryToStart()).isTrue();
+            assertThat(handler.invocations()).isEmpty();
+        }
+
+        /**
+         * A run in flight that does not stop within the feed's {@code stopTimeout}: the work is not done and the
+         * feed is restored, the run simply continues. Needs a real feed thread: the handler blocks mid-entry, before
+         * the run reaches its interruption check.
+         */
+        @Test
+        void givesUpWhenTheRunDoesNotStopInTimeAndRestoresTheFeed() throws Exception {
+            CountDownLatch runBusy = new CountDownLatch(1);
+            CountDownLatch mayFinish = new CountDownLatch(1);
+            ExecutorService feedThread = Executors.newSingleThreadExecutor();
+            try {
+                FeedRuntime runtime = runtime(blockingHandler(runBusy, mayFinish), completeFeed(),
+                        feed -> feed.executor(feedThread).stopTimeout(Duration.ofMillis(100)));
+                runtime.runner().activate();
+                assertThat(runtime.runner().tryToStart()).isTrue();
+                assertThat(runBusy.await(2, TimeUnit.SECONDS)).isTrue();
+                List<String> workDone = new ArrayList<>();
+
+                assertThatThrownBy(() -> runtime.whileStopped(() -> workDone.add("done")))
+                        .isInstanceOf(FeedStillRunningException.class)
+                        .hasMessageContaining("feed 'feed'")
+                        .hasMessageContaining("PT0.1S");
+
+                assertThat(workDone).isEmpty();
+                assertThat(runtime.runner().isActive()).isTrue();
+                assertThat(runtime.runner().isRunning()).isTrue();
+            } finally {
+                mayFinish.countDown();
+                feedThread.shutdownNow();
+            }
+        }
+
+        /**
+         * The transient "inactive + running" state: someone just deactivated the feed while its run is finishing,
+         * and a move comes in right away. The move still waits for the run (so that the run's own pointer commit
+         * cannot overwrite the moved pointer), and the feed stays inactive afterwards: nothing to restore.
+         */
+        @Test
+        void anInactiveFeedWithARunInFlightIsWaitedForAndStaysInactive() throws Exception {
+            CountDownLatch runBusy = new CountDownLatch(1);
+            CountDownLatch mayFinish = new CountDownLatch(1);
+            ExecutorService feedThread = Executors.newSingleThreadExecutor();
+            try {
+                FeedRuntime runtime = runtime(blockingHandler(runBusy, mayFinish), completeFeed(),
+                        feed -> feed.executor(feedThread));
+                runtime.runner().activate();
+                assertThat(runtime.runner().tryToStart()).isTrue();
+                assertThat(runBusy.await(2, TimeUnit.SECONDS)).isTrue();
+                runtime.runner().deactivate();
+                assertThat(runtime.runner().isRunning()).isTrue();
+
+                Thread caller = new Thread(() -> runtime.moveFeedPointer(new FeedPointer("/1")));
+                caller.start();
+                awaitUntil(() -> caller.getState() == Thread.State.TIMED_WAITING);   // waiting for the run
+                assertThat(runtime.feed().pointerRepository().find("feed")).isNotEqualTo(Optional.of(new FeedPointer("/1")));
+
+                mayFinish.countDown();   // the run commits its own pointer and stops; only then does the move happen
+                caller.join(2000);
+
+                assertThat(runtime.feed().pointerRepository().find("feed")).contains(new FeedPointer("/1"));
+                assertThat(runtime.runner().isRunning()).isFalse();
+                assertThat(runtime.runner().isActive()).isFalse();
+            } finally {
+                mayFinish.countDown();
+                feedThread.shutdownNow();
+            }
+        }
+
+        /** The timeout in that same state: the exception falls without a restore, "previous state" is inactive. */
+        @Test
+        void anInactiveFeedWhoseRunDoesNotStopInTimeStaysInactive() throws Exception {
+            CountDownLatch runBusy = new CountDownLatch(1);
+            CountDownLatch mayFinish = new CountDownLatch(1);
+            ExecutorService feedThread = Executors.newSingleThreadExecutor();
+            try {
+                FeedRuntime runtime = runtime(blockingHandler(runBusy, mayFinish), completeFeed(),
+                        feed -> feed.executor(feedThread).stopTimeout(Duration.ofMillis(100)));
+                runtime.runner().activate();
+                assertThat(runtime.runner().tryToStart()).isTrue();
+                assertThat(runBusy.await(2, TimeUnit.SECONDS)).isTrue();
+                runtime.runner().deactivate();
+
+                assertThatThrownBy(() -> runtime.moveFeedPointer(new FeedPointer("/1")))
+                        .isInstanceOf(FeedStillRunningException.class)
+                        .hasMessageContaining("did not stop within PT0.1S");
+
+                assertThat(runtime.feed().pointerRepository().find("feed")).isNotEqualTo(Optional.of(new FeedPointer("/1")));
+                assertThat(runtime.runner().isActive()).isFalse();
+                assertThat(runtime.runner().isRunning()).isTrue();
+            } finally {
+                mayFinish.countDown();
+                feedThread.shutdownNow();
+            }
+        }
+
+        /** A handler that blocks in its first entry until released: a run in flight that does not reach its check. */
+        private static be.wegenenverkeer.atomium.client.handler.EntryFeedHandler<TestFeedEntry> blockingHandler(
+                CountDownLatch runBusy, CountDownLatch mayFinish) {
+            return new be.wegenenverkeer.atomium.client.handler.EntryFeedHandler<>() {
+                @Override
+                public String getFeedId() {
+                    return "feed";
+                }
+
+                @Override
+                public void onEntry(FeedPageMetadata pageMetadata, AtomiumEntry entry, TestFeedEntry content) {
+                    runBusy.countDown();
+                    await(mayFinish);
+                }
+            };
+        }
+
+        /** An interrupt while waiting for the run in flight: not a timeout, and the feed is restored. */
+        @Test
+        void anInterruptWhileWaitingForTheRunIsReportedAsSuchAndRestoresTheFeed() throws Exception {
+            CountDownLatch runBusy = new CountDownLatch(1);
+            CountDownLatch mayFinish = new CountDownLatch(1);
+            ExecutorService feedThread = Executors.newSingleThreadExecutor();
+            try {
+                FeedRuntime runtime = runtime(blockingHandler(runBusy, mayFinish), completeFeed(),
+                        feed -> feed.executor(feedThread).stopTimeout(Duration.ofSeconds(5)));
+                runtime.runner().activate();
+                assertThat(runtime.runner().tryToStart()).isTrue();
+                assertThat(runBusy.await(2, TimeUnit.SECONDS)).isTrue();
+                List<String> outcome = Collections.synchronizedList(new ArrayList<>());
+                Thread caller = new Thread(() -> {
+                    try {
+                        runtime.moveFeedPointer(new FeedPointer("/1"));
+                        outcome.add("moved");
+                    } catch (FeedStillRunningException e) {
+                        outcome.add(e.getMessage());
+                        outcome.add("interrupt status " + Thread.currentThread().isInterrupted());
+                    }
+                });
+                caller.start();
+                awaitUntil(() -> !runtime.runner().isActive());   // the caller is waiting for the run
+
+                caller.interrupt();
+                caller.join(2000);
+
+                assertThat(outcome).hasSize(2);
+                assertThat(outcome.get(0)).contains("interrupted while waiting").doesNotContain("Retry later");
+                assertThat(outcome.get(1)).isEqualTo("interrupt status true");
+                assertThat(runtime.runner().isActive()).isTrue();
+                assertThat(runtime.runner().isRunning()).isTrue();
+            } finally {
+                mayFinish.countDown();
+                feedThread.shutdownNow();
+            }
+        }
+
+        /** An interrupt while queued behind another caller's stop window: reported as such, nothing changed. */
+        @Test
+        void anInterruptWhileWaitingForTheStopWindowIsReportedAsSuch() throws Exception {
+            FeedRuntime runtime = runtime(handler, completeFeed());
+            runtime.runner().activate();
+            CountDownLatch firstStarted = new CountDownLatch(1);
+            CountDownLatch firstMayFinish = new CountDownLatch(1);
+            Thread first = new Thread(() -> runtime.whileStopped(() -> {
+                firstStarted.countDown();
+                await(firstMayFinish);
+            }));
+            List<String> outcome = Collections.synchronizedList(new ArrayList<>());
+            Thread second = new Thread(() -> {
+                try {
+                    runtime.moveFeedPointer(new FeedPointer("/1"));
+                    outcome.add("moved");
+                } catch (FeedStillRunningException e) {
+                    outcome.add(e.getMessage());
+                    outcome.add("interrupt status " + Thread.currentThread().isInterrupted());
+                }
+            });
+            try {
+                first.start();
+                assertThat(firstStarted.await(2, TimeUnit.SECONDS)).isTrue();
+                second.start();
+                awaitUntil(() -> second.getState() == Thread.State.WAITING);   // queued on the window
+
+                second.interrupt();
+                second.join(2000);
+
+                assertThat(outcome).hasSize(2);
+                assertThat(outcome.get(0)).contains("interrupted while waiting");
+                assertThat(outcome.get(1)).isEqualTo("interrupt status true");
+                assertThat(runtime.feed().pointerRepository().find("feed")).isEmpty();
+            } finally {
+                firstMayFinish.countDown();
+                first.join(2000);
+            }
+            assertThat(runtime.runner().isActive()).isTrue();
+        }
+
+        /**
+         * Two callers on the same runtime are serialized: the second stop window opens only after the first one has
+         * closed, restore included. Without that, the first caller's restore would reactivate the feed while the
+         * second one is still working in what it believes to be a stopped feed.
+         */
+        @Test
+        void concurrentCallsAreSerialized() throws Exception {
+            FeedRuntime runtime = runtime(handler, completeFeed());
+            runtime.runner().activate();
+            List<String> timeline = Collections.synchronizedList(new ArrayList<>());
+            CountDownLatch firstStarted = new CountDownLatch(1);
+            CountDownLatch firstMayFinish = new CountDownLatch(1);
+            ExecutorService callers = Executors.newFixedThreadPool(2);
+            try {
+                Future<?> first = callers.submit(() -> runtime.whileStopped(() -> {
+                    timeline.add("first starts");
+                    firstStarted.countDown();
+                    await(firstMayFinish);
+                    timeline.add("first ends");
+                }));
+                assertThat(firstStarted.await(2, TimeUnit.SECONDS)).isTrue();
+                Future<?> second = callers.submit(() -> runtime.whileStopped(() -> {
+                    timeline.add("second starts, feed active: " + runtime.runner().isActive());
+                    timeline.add("second ends");
+                }));
+                // give the second caller the chance to slip in wrongly; it must still be waiting
+                Thread.sleep(200);
+                assertThat(timeline).containsExactly("first starts");
+
+                firstMayFinish.countDown();
+                first.get(2, TimeUnit.SECONDS);
+                second.get(2, TimeUnit.SECONDS);
+
+                assertThat(timeline).containsExactly(
+                        "first starts", "first ends", "second starts, feed active: false", "second ends");
+                assertThat(runtime.runner().isActive()).isTrue();
+            } finally {
+                callers.shutdownNow();
+            }
+        }
+
+        private static void await(CountDownLatch latch) {
+            try {
+                latch.await(5, TimeUnit.SECONDS);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        }
+
+        /** The source is consulted before anything is persisted: a failing source leaves the pointer untouched. */
+        @Test
+        void aFailingSourceLeavesThePointerUntouchedAndRestoresTheFeed() {
+            FeedRuntime runtime = runtime(handler, new FakeFeedHttpClient().head("/missing"));
+            runtime.runner().activate();
+
+            assertThatThrownBy(() -> runtime.resetToOldest()).isInstanceOf(AtomiumHttpException.class);
+
+            assertThat(runtime.feed().pointerRepository().find("feed")).isEmpty();
+            assertThat(runtime.runner().isActive()).isTrue();
+        }
+
+        /**
+         * From the feed thread itself (here: a handler) the call would wait on itself; it fails fast instead — also
+         * while another caller holds the stop window and is waiting for this very run to stop: the run must not
+         * queue behind the window (the caller would wait for it until its timeout), it must fail right away so
+         * that the run stops and the caller gets its window.
+         */
+        @Test
+        void fromTheFeedThreadItFailsFastEvenWhileAnotherCallerHoldsTheStopWindow() throws Exception {
+            List<FeedRuntime> self = new ArrayList<>();
+            CountDownLatch inHandler = new CountDownLatch(1);
+            CountDownLatch mayMove = new CountDownLatch(1);
+            be.wegenenverkeer.atomium.client.handler.EntryFeedHandler<TestFeedEntry> movingHandler =
+                    new be.wegenenverkeer.atomium.client.handler.EntryFeedHandler<>() {
+                @Override
+                public String getFeedId() {
+                    return "feed";
+                }
+
+                @Override
+                public void onEntry(FeedPageMetadata pageMetadata, AtomiumEntry entry, TestFeedEntry content) {
+                    inHandler.countDown();
+                    await(mayMove);
+                    self.getFirst().resetToOldest();
+                }
+            };
+            ExecutorService feedThread = Executors.newSingleThreadExecutor();
+            ExecutorService caller = Executors.newSingleThreadExecutor();
+            try {
+                FeedRuntime runtime = runtime(movingHandler, completeFeed(),
+                        feed -> feed.executor(feedThread).stopTimeout(Duration.ofSeconds(5)));
+                self.add(runtime);
+                runtime.runner().activate();
+                assertThat(runtime.runner().tryToStart()).isTrue();
+                assertThat(inHandler.await(2, TimeUnit.SECONDS)).isTrue();
+
+                // the other caller opens the window and waits for the run in flight
+                Future<FeedPointer> move = caller.submit(() -> runtime.moveFeedPointer(new FeedPointer("/1")));
+                awaitUntil(() -> !runtime.runner().isActive());
+                mayMove.countDown();
+
+                // the run fails right away, so the caller gets its window long before its timeout
+                assertThat(move.get(2, TimeUnit.SECONDS)).isEqualTo(new FeedPointer("/1"));
+                // the caller's restore (activate) has cleared the runner's lastFailure by now: the event has it
+                assertThat(eventListener.failures()).hasSize(1);
+                assertThat(eventListener.failures().getFirst().cause())
+                        .isInstanceOf(IllegalStateException.class)
+                        .hasMessageContaining("deadlock");
+                assertThat(runtime.runner().isActive()).isTrue();
+            } finally {
+                mayMove.countDown();
+                feedThread.shutdownNow();
+                caller.shutdownNow();
+            }
+        }
+
+        private static void awaitUntil(java.util.function.BooleanSupplier condition) {
+            long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2);
+            while (!condition.getAsBoolean()) {
+                if (System.nanoTime() > deadline) {
+                    throw new IllegalStateException("condition not reached within the timeout");
+                }
+                Thread.onSpinWait();
+            }
         }
     }
 

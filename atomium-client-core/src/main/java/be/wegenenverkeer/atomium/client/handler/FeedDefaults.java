@@ -1,5 +1,8 @@
 package be.wegenenverkeer.atomium.client.handler;
 
+import java.time.Duration;
+import java.util.function.Supplier;
+
 /**
  * The defaults of the handler API, in one place. Documentation refers to them with {@code {@value}}, so the
  * documented values can never drift from the real ones. Exception: markdown has no
@@ -17,6 +20,18 @@ public final class FeedDefaults {
 
     /** The safety net {@link Feed#maxUncommittedPages()}: ask for a wrap-up after this many pages without a commit. */
     public static final int MAX_UNCOMMITTED_PAGES = 10;
+
+    /**
+     * The default {@link Feed#stopTimeout()} in seconds; {@link #STOP_TIMEOUT} is the same value as a
+     * {@link Duration}.
+     */
+    public static final long STOP_TIMEOUT_SECONDS = 60;
+
+    /**
+     * The default {@link Feed#stopTimeout()}: {@value #STOP_TIMEOUT_SECONDS} seconds, how long
+     * {@link FeedRuntime#whileStopped(Supplier)} waits for a run in flight to stop.
+     */
+    public static final Duration STOP_TIMEOUT = Duration.ofSeconds(STOP_TIMEOUT_SECONDS);
 
     private FeedDefaults() {
     }

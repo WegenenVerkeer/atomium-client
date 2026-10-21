@@ -32,6 +32,10 @@ import java.util.Map;
  *                            single-element list); empty by default
  * @param activeOnStartup    whether the consumer may start automatically
  * @param queryInterval       the poll frequency: the wait time between the end of a successful run and the next
+ * @param stopTimeout         optional: how long moving the feed pointer (the admin endpoint, or
+ *                            {@code FeedRuntime.whileStopped} from application code) waits for a run in flight to
+ *                            stop. Empty = the core default ({@code FeedDefaults.STOP_TIMEOUT},
+ *                            {@value FeedDefaults#STOP_TIMEOUT_SECONDS} seconds)
  * @param initialFeedPointer optional: the start position for a brand-new feed (only used as long as no
  *                            pointer has been persisted yet). When absent, an already persisted pointer is
  *                            expected (otherwise the feed fails at startup).
@@ -44,6 +48,7 @@ public record AtomiumFeedProperties(
         @DefaultValue Map<String, List<String>> queryParams,
         @DefaultValue(Defaults.ACTIVE_ON_STARTUP) boolean activeOnStartup,
         @DefaultValue(Defaults.QUERY_INTERVAL) Duration queryInterval,
+        @Nullable Duration stopTimeout,
         @Nullable InitialFeedPointer initialFeedPointer,
         @DefaultValue Backoff backoff,
         @DefaultValue Processing processing
@@ -56,6 +61,9 @@ public record AtomiumFeedProperties(
         queryParams = Collections.unmodifiableMap(queryParamsCopy);
         if (queryInterval.isZero() || queryInterval.isNegative()) {
             throw new IllegalArgumentException("query-interval must be positive, was " + queryInterval);
+        }
+        if (stopTimeout != null && (stopTimeout.isZero() || stopTimeout.isNegative())) {
+            throw new IllegalArgumentException("stop-timeout must be positive, was " + stopTimeout);
         }
     }
 
@@ -148,10 +156,10 @@ public record AtomiumFeedProperties(
      * The start position of a brand-new feed.
      *
      * @param type     the strategy: from the oldest page, from now, or an explicit page link; required
-     * @param pageLink only for {@link Type#POINTER} (and then required): the page href relative to the base url
-     *                 (e.g. {@code /182})
+     * @param pageLink only for {@link FeedPointerType#POINTER} (and then required): the page href relative to the
+     *                 base url (e.g. {@code /182})
      */
-    public record InitialFeedPointer(Type type, @Nullable String pageLink) {
+    public record InitialFeedPointer(FeedPointerType type, @Nullable String pageLink) {
 
         @SuppressWarnings("ConstantValue") // the Boot binder CAN bind null for a missing 'type'
         public InitialFeedPointer {
@@ -159,24 +167,15 @@ public record AtomiumFeedProperties(
                 throw new IllegalArgumentException(
                         "initial-feed-pointer.type is required (oldest | now | pointer)");
             }
-            if (type == Type.POINTER && (pageLink == null || pageLink.isBlank())) {
+            if (type == FeedPointerType.POINTER && (pageLink == null || pageLink.isBlank())) {
                 throw new IllegalArgumentException(
                         "initial-feed-pointer type 'pointer' requires a 'page-link'");
             }
-            if (type != Type.POINTER && pageLink != null) {
+            if (type != FeedPointerType.POINTER && pageLink != null) {
                 throw new IllegalArgumentException(
                         ("initial-feed-pointer.page-link ('%s') is only meaningful with type 'pointer', not with '%s' "
                                 + "— remove the page-link or use type 'pointer'").formatted(pageLink, type));
             }
-        }
-
-        public enum Type {
-            /** From the oldest page: consume the full history. */
-            OLDEST,
-            /** Only events added after initialization (skip the existing ones on the head). */
-            NOW,
-            /** From an explicit page link ({@code page-link}). */
-            POINTER
         }
     }
 }

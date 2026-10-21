@@ -1,25 +1,39 @@
 package be.wegenenverkeer.atomium.client.handler;
 
+import be.wegenenverkeer.atomium.client.exception.FeedStillRunningException;
 import be.wegenenverkeer.atomium.client.fetch.FeedPointer;
 import org.jspecify.annotations.Nullable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.time.Clock;
+import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Supplier;
 
 /**
  * The running machinery of one {@link Feed}, assembled by {@link #of(Feed)}: the {@link FeedRunner}
  * (lifecycle, backoff) around a consumer that walks the feed, and the {@link EntryPusher} to process a standalone
  * content item. The per-feed entry point for a scheduler and management tooling (e.g. an admin endpoint).
+ *
+ * <p>It is also the place to <b>move the feed pointer</b> safely ({@link #moveFeedPointer}, {@link #resetToOldest},
+ * {@link #resetFromNow}): the pointer may only change while no run is in flight, and the feed must end up in the
+ * state it was in before. {@link #whileStopped} is the building block behind them, for any other work that needs
+ * the same guarantee.
  */
 public final class FeedRuntime {
+
+    private static final Logger LOG = LoggerFactory.getLogger(FeedRuntime.class);
 
     private final Feed<?> feed;
     private final FeedRunner runner;
     private final EntryPusher pusher;
     private final Progress progress;
+    /** Serializes {@link #whileStopped}: one stop window at a time per feed. */
+    private final ReentrantLock stopWindow = new ReentrantLock();
 
     FeedRuntime(Feed<?> feed, FeedRunner runner, EntryPusher pusher, Progress progress) {
         this.feed = feed;
@@ -160,6 +174,100 @@ public final class FeedRuntime {
 
     public String feedId() {
         return runner.feedId();
+    }
+
+    /**
+     * Runs {@code work} while the feed is guaranteed to be stopped, and restores the feed afterwards: an active feed
+     * is deactivated, waited for (at most the feed's {@link Feed#stopTimeout() stopTimeout}) and activated again
+     * after the work, also when the work fails; an inactive feed stays inactive. Calls on the same runtime are
+     * serialized. {@code work} runs outside any transaction.
+     *
+     * @throws FeedStillRunningException if the run in flight did not stop in time, or the wait was interrupted
+     *                                   (the interrupt status stays set): the work was not done, the feed is restored
+     * @throws IllegalStateException     when called from the feed thread itself (a handler or listener callback):
+     *                                   that would wait on itself
+     */
+    public <T> T whileStopped(Supplier<T> work) {
+        // before the lock: a feed thread queued behind an open stop window could never stop, and the caller
+        // holding the window would wait for it until its timeout
+        if (runner.isFeedThread()) {
+            throw new IllegalStateException(("feed '%s': whileStopped must not be called from the feed thread "
+                    + "itself (deadlock)").formatted(feedId()));
+        }
+        try {
+            stopWindow.lockInterruptibly();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw FeedStillRunningException.interrupted(feedId());
+        }
+        try {
+            Duration stopTimeout = feed.stopTimeout();
+            boolean wasActive = runner.isActive();
+            if (!runner.deactivateAndAwait(stopTimeout)) {
+                if (wasActive) {
+                    runner.activate();
+                }
+                // deactivateAndAwait leaves the interrupt status set when that is why it gave up
+                throw Thread.currentThread().isInterrupted()
+                        ? FeedStillRunningException.interrupted(feedId())
+                        : FeedStillRunningException.timedOut(feedId(), stopTimeout);
+            }
+            try {
+                return work.get();
+            } finally {
+                if (wasActive) {
+                    runner.activate();
+                }
+            }
+        } finally {
+            stopWindow.unlock();
+        }
+    }
+
+    /** {@link #whileStopped(Supplier)} for work without a result. */
+    public void whileStopped(Runnable work) {
+        whileStopped(() -> {
+            work.run();
+            return null;
+        });
+    }
+
+    /**
+     * Moves the read position of the feed to {@code feedPointer}, {@link #whileStopped(Supplier) while the feed is
+     * stopped}; the next run starts from there.
+     *
+     * @return the pointer as persisted
+     */
+    public FeedPointer moveFeedPointer(FeedPointer feedPointer) {
+        return whileStopped(() -> persistFeedPointer(feedPointer));
+    }
+
+    /**
+     * Moves the read position to the oldest page ({@code AtomiumClient.pointerToOldest()}),
+     * {@link #whileStopped(Supplier) while the feed is stopped}: the feed is consumed again from the beginning. The
+     * source is consulted before anything is persisted.
+     *
+     * @return the pointer as persisted
+     */
+    public FeedPointer resetToOldest() {
+        return whileStopped(() -> persistFeedPointer(feed.atomiumClient().pointerToOldest()));
+    }
+
+    /**
+     * Moves the read position to "now" ({@code AtomiumClient.pointerFromNow()}), {@link #whileStopped(Supplier)
+     * while the feed is stopped}: the existing events are skipped. The source is consulted before anything is
+     * persisted.
+     *
+     * @return the pointer as persisted
+     */
+    public FeedPointer resetFromNow() {
+        return whileStopped(() -> persistFeedPointer(feed.atomiumClient().pointerFromNow()));
+    }
+
+    private FeedPointer persistFeedPointer(FeedPointer feedPointer) {
+        feed.transactions().inTransactionWithoutResult(() -> feed.pointerRepository().save(feedId(), feedPointer));
+        LOG.info("feed '{}': feed pointer moved to {}", feedId(), feedPointer);
+        return feedPointer;
     }
 
     /** The moment of the last commit (feed pointer persisted), or {@code null} before the first one. */

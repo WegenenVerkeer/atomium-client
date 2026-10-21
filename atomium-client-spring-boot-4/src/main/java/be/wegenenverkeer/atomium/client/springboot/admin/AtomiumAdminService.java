@@ -1,6 +1,7 @@
 package be.wegenenverkeer.atomium.client.springboot.admin;
 
 
+import be.wegenenverkeer.atomium.client.exception.FeedStillRunningException;
 import be.wegenenverkeer.atomium.client.fetch.FeedPointer;
 import be.wegenenverkeer.atomium.client.port.FeedHttpClient;
 import be.wegenenverkeer.atomium.client.springboot.AtomiumFeedProperties;
@@ -25,8 +26,6 @@ import java.util.List;
 public class AtomiumAdminService {
 
     private static final Logger LOG = LoggerFactory.getLogger(AtomiumAdminService.class);
-    // ample for a typical commit transaction; a truly slow handler does not cancel the deactivation
-    private static final Duration DEACTIVATE_TIMEOUT = Duration.ofSeconds(10);
 
     private final Feeds feeds;
     private final FeedPointerRepository feedPointerRepository;
@@ -57,22 +56,23 @@ public class AtomiumAdminService {
     }
 
     /**
-     * Move the read position of a feed (troubleshooting). The next run starts from this pointer. Only
-     * allowed when the feed is <em>inactive</em> and <em>no run is in progress anymore</em>, so that a (just
-     * deactivated but still running) run does not overwrite the pointer concurrently.
+     * Move the read position of a feed (troubleshooting): to the oldest page, to now, or to a known position
+     * ({@link SetFeedPointerCommand}). The next run starts from there. Safe on an active feed, see
+     * {@link FeedRuntime#whileStopped}.
      *
-     * @throws AtomiumUnknownFeedException  if the feed does not exist
-     * @throws AtomiumAdminValidationException if the feed is active or still has a run in progress
+     * @return the pointer as persisted
+     * @throws AtomiumUnknownFeedException     if the feed does not exist
+     * @throws AtomiumAdminValidationException if the command is invalid
+     * @throws FeedStillRunningException       from {@link FeedRuntime#whileStopped}
      */
-    public void setFeedPointer(String feedId, FeedPointer feedPointer) {
-        FeedRunner runner = runtime(feedId).runner();
-        if (runner.isActive() || runner.isRunning()) {
-            throw new AtomiumAdminValidationException(
-                    ("The feed pointer can only be set when the feed is inactive and no run is in progress "
-                            + "(to avoid race conditions). Feed '%s': active=%s, running=%s.")
-                            .formatted(feedId, runner.isActive(), runner.isRunning()));
-        }
-        feedPointerRepository.save(feedId, feedPointer);
+    public FeedPointerDto setFeedPointer(String feedId, SetFeedPointerCommand command) {
+        FeedRuntime runtime = runtime(feedId);
+        FeedPointer pointer = switch (command.resolvedType()) {
+            case OLDEST -> runtime.resetToOldest();
+            case NOW -> runtime.resetFromNow();
+            case POINTER -> runtime.moveFeedPointer(command.toFeedPointer());
+        };
+        return FeedPointerDto.of(feedId, pointer);
     }
 
     /** The lifecycle and backoff status of every feed. */
@@ -111,21 +111,23 @@ public class AtomiumAdminService {
     }
 
     /**
-     * Deactivates and waits (bounded) until a possibly running run has stopped, so that a subsequent
-     * {@link #setFeedPointer} or application-level cleanup does not collide with a still-running run.
+     * Deactivates and waits (bounded by the feed's {@code stopTimeout}) until a possibly running run has stopped,
+     * so that application-level cleanup does not collide with a still-running run.
      *
      * @throws AtomiumUnknownFeedException  if the feed does not exist
      * @throws AtomiumAdminValidationException if the feed is already inactive
      */
     public void deactivate(String feedId) {
-        FeedRunner runner = runtime(feedId).runner();
+        FeedRuntime runtime = runtime(feedId);
+        FeedRunner runner = runtime.runner();
         if (!runner.isActive()) {
             throw new AtomiumAdminValidationException(
                     "Only an active feed can be deactivated. Feed '%s' is already inactive.".formatted(feedId));
         }
-        if (!runner.deactivateAndAwait(DEACTIVATE_TIMEOUT)) {
-            LOG.warn("feed '{}': deactivated, but the running run had not reached its commit point after {}; "
-                    + "it will still stop by itself", feedId, DEACTIVATE_TIMEOUT);
+        Duration stopTimeout = runtime.feed().stopTimeout();
+        if (!runner.deactivateAndAwait(stopTimeout)) {
+            LOG.warn("feed '{}': deactivated, but the running run had not stopped after {}; "
+                    + "it will still stop by itself", feedId, stopTimeout);
         }
     }
 

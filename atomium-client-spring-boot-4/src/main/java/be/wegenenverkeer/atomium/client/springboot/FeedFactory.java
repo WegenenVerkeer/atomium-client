@@ -130,6 +130,9 @@ public class FeedFactory {
         if (maxUncommittedPages != null) {
             builder.maxUncommittedPages(maxUncommittedPages);
         }
+        if (properties.stopTimeout() != null) {
+            builder.stopTimeout(properties.stopTimeout());
+        }
         return builder.build();
     }
 

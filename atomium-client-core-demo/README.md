@@ -44,6 +44,10 @@ Start `CoreDemoApplication` (e.g. from the IDE, or `mvn spring-boot:run`). All r
    block: process a loose content item as if it had been on the feed.
 6. `PUT /rest/demo/feeds/simple-processing/activate` — the same backlog, but now processed **in batches**
    (visible in the logs).
+7. `PUT /rest/demo/feeds/full-monty/reset?to=oldest` — while the feed is active: the runtime stops it, waits
+   for the run in flight, moves the pointer to the oldest page and activates it again; the backlog is processed
+   once more. With `?to=now` the backlog is skipped instead (`FeedRuntime.resetToOldest` / `resetFromNow`). If the
+   run does not stop within the feed's stop timeout, the reset answers 409 and nothing has changed.
 
 ## Start position of a new feed
 
