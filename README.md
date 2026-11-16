@@ -147,7 +147,8 @@ module in the release. For example, tag `v4.0.0` publishes version `4.0.0`. To r
 2. In [`CHANGELOG.md`](CHANGELOG.md), turn the `Unreleased` section into the new version (with the date) and
    start a fresh, empty `Unreleased` section, and update the link definitions at the bottom of the file (a
    compare link for the new version, `Unreleased` compared against the new tag); commit that to `main`. The
-   GitHub release notes are that version's section.
+   GitHub release notes are that version's section; the release workflow refuses a tag whose version has no
+   section.
 3. Create and push an annotated version tag:
 
    ```bash
