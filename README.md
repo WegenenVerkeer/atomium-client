@@ -137,11 +137,13 @@ Every direct push to `main` runs the complete Maven build and, after it succeeds
 only build and test. The publishing step refuses to run when the version in `pom.xml` does not end in
 `-SNAPSHOT`.
 
+The version in the POMs is a fixed placeholder, `<major>.0.0-SNAPSHOT`: it names the snapshots of `main` and
+does not follow the releases (see [`VERSIONING.md`](VERSIONING.md)).
+
 Releases are driven by Git tags. The tag must start with `v`; the part after `v` becomes the version of every
 module in the release. For example, tag `v4.0.0` publishes version `4.0.0`. To release:
 
-1. Make sure the commit to release is on `main`, its CI build is green, and the checked-in project version is
-   still a `-SNAPSHOT`.
+1. Make sure the commit to release is on `main` and its CI build is green.
 2. In [`CHANGELOG.md`](CHANGELOG.md), turn the `Unreleased` section into the new version (with the date) and
    start a fresh, empty `Unreleased` section, and update the link definitions at the bottom of the file (a
    compare link for the new version, `Unreleased` compared against the new tag); commit that to `main`. The
@@ -156,14 +158,6 @@ module in the release. For example, tag `v4.0.0` publishes version `4.0.0`. To r
 4. Follow the `Release` GitHub Actions workflow. It derives the release version from the tag, builds and tests
    the complete reactor, signs the published artifacts, and automatically publishes them through the Maven
    Central Portal.
-5. After the release succeeds, set the suite to the next development version, commit the changed POMs, and
-   push them to `main`. For example:
-
-   ```bash
-   ./mvnw org.codehaus.mojo:versions-maven-plugin:2.21.0:set \
-     -DnewVersion=4.0.1-SNAPSHOT \
-     -DgenerateBackupPoms=false
-   ```
 
 The repository must have `SONATYPE_USERNAME`, `SONATYPE_PASSWORD`, and the base64-encoded `GPG_PRIVATE_KEY`
 configured as GitHub Actions secrets. The release workflow changes the Maven version only in its checkout;
