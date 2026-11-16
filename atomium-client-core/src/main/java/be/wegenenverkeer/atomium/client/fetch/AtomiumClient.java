@@ -68,7 +68,8 @@ public final class AtomiumClient {
      * @return the fetch result, or {@link Optional#empty()} on a {@code 304 Not Modified}
      * @throws AtomiumPageGoneException      on a {@code 410 Gone} (purged page)
      * @throws AtomiumHttpException          on any other unexpected HTTP status
-     * @throws AtomiumInvalidPageException on an invalid page envelope
+     * @throws AtomiumInvalidPageException on an invalid page envelope, or on a page with more than one entry with
+     *                                     the last delivered event id
      */
     public Optional<FetchResult> fetch(FeedPointer feedPointer) {
         FetchCoordinate fetch = feedPointer.nextFetch();
@@ -164,7 +165,7 @@ public final class AtomiumClient {
                                             @Nullable EventCoordinate incomingLastEvent, @Nullable String filterEventId) {
         String self = feedPage.metadata().href(SELF);
         List<AtomiumEntry> oldestFirst = reversed(feedPage.entries());
-        List<AtomiumEntry> newEntries = filterAlreadyDelivered(oldestFirst, filterEventId);
+        List<AtomiumEntry> newEntries = filterAlreadyDelivered(self, oldestFirst, filterEventId);
 
         FetchCoordinate nextFetch = nextFetchCoordinate(feedPage, etag);
         EventCoordinate lastEventAfter = newEntries.isEmpty()
@@ -190,17 +191,30 @@ public final class AtomiumClient {
     /**
      * Filter out all entries up to and including {@code lastEventId} (they were already delivered). If {@code
      * lastEventId} does not occur on the page, nothing is filtered.
+     *
+     * @throws AtomiumInvalidPageException if more than one entry on the page has {@code lastEventId}
      */
-    private static List<AtomiumEntry> filterAlreadyDelivered(List<AtomiumEntry> oldestFirst, @Nullable String lastEventId) {
+    private static List<AtomiumEntry> filterAlreadyDelivered(String self, List<AtomiumEntry> oldestFirst,
+                                                             @Nullable String lastEventId) {
         if (lastEventId == null) {
             return oldestFirst;
         }
+        int lastDelivered = -1;
         for (int i = 0; i < oldestFirst.size(); i++) {
             if (oldestFirst.get(i).id().equals(lastEventId)) {
-                return new ArrayList<>(oldestFirst.subList(i + 1, oldestFirst.size()));
+                if (lastDelivered >= 0) {
+                    // no guess is safe: after the older entry the younger one is delivered again on every fetch,
+                    // after the younger one it is skipped when the older one was the last one delivered
+                    throw new AtomiumInvalidPageException(
+                            "page '%s' has more than one entry with the last delivered event id '%s'; entry ids must be unique within a feed"
+                                    .formatted(self, lastEventId));
+                }
+                lastDelivered = i;
             }
         }
-        return oldestFirst;
+        return lastDelivered < 0
+                ? oldestFirst
+                : new ArrayList<>(oldestFirst.subList(lastDelivered + 1, oldestFirst.size()));
     }
 
     /**

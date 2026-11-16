@@ -1,6 +1,7 @@
 package be.wegenenverkeer.atomium.client.handler;
 
 import be.wegenenverkeer.atomium.client.exception.AtomiumHttpException;
+import be.wegenenverkeer.atomium.client.exception.AtomiumInvalidPageException;
 import be.wegenenverkeer.atomium.client.exception.FeedStillRunningException;
 import be.wegenenverkeer.atomium.client.fetch.AtomiumClient;
 import be.wegenenverkeer.atomium.client.fetch.FakeFeedHttpClient;
@@ -845,6 +846,29 @@ class FeedConsumerTest {
             assertThat(eventListener.failures()).singleElement().satisfies(failure ->
                     assertThat(failure.cause().getSuppressed()).singleElement()
                             .isInstanceOf(AtomiumHttpException.class));
+        }
+
+        /**
+         * An invalid feed: the two youngest entries of the head have the same id. The next run fails instead of
+         * delivering the younger one again, run after run.
+         */
+        @Test
+        void aHeadEndingInEntriesWithTheSameIdFailsTheNextRunInsteadOfDeliveringThemAgain() {
+            FeedRuntime runtime = runtime(handler, new FakeFeedHttpClient().head("/0")
+                    .page("/0", resource("0-same-entry-id.json")));
+            consume(runtime);
+            assertThat(handler.invocations()).containsExactly(
+                    "onEntry(/0, id-001, fieldValue-1)",
+                    "onEntry(/0, id-002, fieldValue-2a)",
+                    "onEntry(/0, id-002, fieldValue-2b)");
+            handler.invocations().clear();
+
+            consume(runtime);
+
+            assertThat(handler.invocations()).isEmpty();
+            assertThat(eventListener.failures()).singleElement().satisfies(failure ->
+                    assertThat(failure.cause()).isInstanceOf(AtomiumInvalidPageException.class)
+                            .hasMessageContaining("event id 'id-002'"));
         }
     }
 

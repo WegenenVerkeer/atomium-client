@@ -14,9 +14,17 @@ check or change (`Upgrade notes`). Internal refactorings and test work do not be
 
 ### Fixed
 
+- A feed whose youngest entries have the same id no longer delivers the youngest of them again on every run,
+  without end. When more than one entry on a page has the last delivered event id, the fetch now fails with
+  an `AtomiumInvalidPageException` naming the page and the id, and the run fails like on any other failing
+  read.
+
 ### Removed
 
 ### Upgrade notes
+
+- Entry ids must be unique within a feed. A feed whose last delivered event id occurs more than once on its
+  page now fails on every run until the source system repairs the ids.
 
 ## [4.1.1] - 2026-10-21
 

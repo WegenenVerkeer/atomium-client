@@ -66,6 +66,9 @@ lock-step (see `VERSIONING.md`).
   nextFetchPageEtag)` (from persistence; derives `filterEventId`), factory `resumeAfter(EventCoordinate)`.
   Table `atomium_feed_pointer_v1`, columns `feed_id, last_event_page_link, last_event_id,
   next_fetch_page_link, next_fetch_page_etag, created_at, updated_at` (the filter is derived, not stored).
+  A page with more than one entry with the last delivered event id (an invalid feed) is refused with an
+  `AtomiumInvalidPageException` rather than resolved by a guess: either guess loops or skips. Only that id is
+  checked, deliberately; the client does not validate the uniqueness of the other ids.
 - **Admin endpoint** (`/rest/atomium/**`, in **spring-boot-4**, incl. its tests with in-memory HTTP Basic
   security). Authorization via the mandatory `AtomiumAdminAuthorization` bean (fail-fast on
   `atomium.admin.enabled=true` without a bean; every endpoint method asserts read or write permission as its
