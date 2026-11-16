@@ -55,6 +55,15 @@ accompanying Spring, Jackson and test versions themselves.
 `atomium-client-bom` pins all published artifacts to one suite version. Consumers import it
 (`scope=import`) instead of versioning every module individually. The demos are not in it (not a reusable artifact).
 
+## The version in the POMs
+
+The released version comes from the Git tag alone: the release workflow sets it in its own checkout and
+commits nothing. The version checked in is therefore a fixed placeholder, `<major>.0.0-SNAPSHOT` (on `main`:
+`4.0.0-SNAPSHOT`), and names the snapshots that every push publishes. It does not move with the minor and
+patch releases, so there is no "next development version" to commit after a release; it changes only when
+the major does. The major is in it so that a maintenance branch publishes its snapshots under a name of its
+own.
+
 ## Branches
 
 - **Simultaneously supported worlds live side by side on `main`** as parallel artifacts (e.g.
