@@ -327,6 +327,50 @@ class AtomiumClientTest {
             assertThat(result.feedHasMorePages()).isFalse();
             assertThat(result.nextFeedPointer()).isEqualTo(onPage("/2", "id-008", null));
         }
+
+        /** An invalid feed: two entries have the last delivered event id. */
+        @Test
+        void refusesThePageWhenMoreThanOneEntryHasTheLastEventId() {
+            var rest = new FakeFeedHttpClient()
+                    .page("/2", FeedFixture.page("/2").oldest("/0").older("/1")
+                            .entry("id-008", "2026-01-31T12:08:00+01:00", "fieldValue-8b")
+                            .entry("id-008", "2026-01-31T12:08:00+01:00", "fieldValue-8a")
+                            .entry("id-007", "2026-01-31T12:07:00+01:00", "fieldValue-7")
+                            .json());
+
+            assertThatThrownBy(() -> client(rest).fetch(onPage("/2", "id-008", null)))
+                    .isInstanceOf(AtomiumInvalidPageException.class)
+                    .hasMessageContaining("page '/2'")
+                    .hasMessageContaining("event id 'id-008'");
+        }
+
+        @Test
+        void refusesThePageWhenTheEntriesWithTheLastEventIdAreNotAdjacent() {
+            var rest = new FakeFeedHttpClient()
+                    .page("/2", FeedFixture.page("/2").oldest("/0").older("/1")
+                            .entry("id-007", "2026-01-31T12:09:00+01:00", "fieldValue-7b")
+                            .entry("id-008", "2026-01-31T12:08:00+01:00", "fieldValue-8")
+                            .entry("id-007", "2026-01-31T12:07:00+01:00", "fieldValue-7a")
+                            .json());
+
+            assertThatThrownBy(() -> client(rest).fetch(onPage("/2", "id-007", null)))
+                    .isInstanceOf(AtomiumInvalidPageException.class);
+        }
+
+        /** Only the last delivered event id is checked; the client does not validate the other ids. */
+        @Test
+        void deliversEntriesWithTheSameIdWhenThatIdIsNotTheLastEventId() {
+            var rest = new FakeFeedHttpClient()
+                    .page("/2", FeedFixture.page("/2").oldest("/0").older("/1")
+                            .entry("id-008", "2026-01-31T12:08:00+01:00", "fieldValue-8b")
+                            .entry("id-008", "2026-01-31T12:08:00+01:00", "fieldValue-8a")
+                            .entry("id-007", "2026-01-31T12:07:00+01:00", "fieldValue-7")
+                            .json());
+
+            FetchResult result = client(rest).fetch(onPage("/2", "id-007", null)).orElseThrow();
+
+            assertThat(ids(result)).containsExactly("id-008", "id-008");
+        }
     }
 
     @Nested
