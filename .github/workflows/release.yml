@@ -21,6 +21,17 @@ jobs:
         id: version
         run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
 
+      - name: Verify the CHANGELOG has a section for this version
+        # Before anything is built or published: a version on Maven Central cannot be
+        # replaced, so release notes that were forgotten cost another release.
+        run: |
+          if ! grep -qF "## [${VERSION}]" CHANGELOG.md; then
+            echo "CHANGELOG.md has no section '## [${VERSION}]'" >&2
+            exit 1
+          fi
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+
       - uses: actions/setup-java@v4
         with:
           distribution: corretto
