@@ -14,12 +14,20 @@ check or change (`Upgrade notes`). Internal refactorings and test work do not be
 
 ### Fixed
 
+### Removed
+
+### Upgrade notes
+
+## [4.1.2] - 2026-11-17
+
+Patch release: one fix, for a feed that has entries with the same id.
+
+### Fixed
+
 - A feed whose youngest entries have the same id no longer delivers the youngest of them again on every run,
   without end. When more than one entry on a page has the last delivered event id, the fetch now fails with
   an `AtomiumInvalidPageException` naming the page and the id, and the run fails like on any other failing
   read.
-
-### Removed
 
 ### Upgrade notes
 
@@ -139,6 +147,7 @@ handler API below.
 - The admin endpoint refuses to start (`atomium.admin.enabled=true`) without an `AtomiumAdminAuthorization`
   bean.
 
-[Unreleased]: https://github.com/WegenenVerkeer/atomium-client/compare/v4.1.1...HEAD
+[Unreleased]: https://github.com/WegenenVerkeer/atomium-client/compare/v4.1.2...HEAD
+[4.1.2]: https://github.com/WegenenVerkeer/atomium-client/compare/v4.1.1...v4.1.2
 [4.1.1]: https://github.com/WegenenVerkeer/atomium-client/compare/v4.0.0...v4.1.1
 [4.0.0]: https://github.com/WegenenVerkeer/atomium-client/releases/tag/v4.0.0
